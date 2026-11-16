@@ -41,6 +41,13 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
+import java.util.Locale;
+import java.util.zip.Deflater;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
+import java.util.zip.ZipOutputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -144,9 +151,11 @@ public class VaultPlugin extends Plugin {
             while ((n = in.read(buf)) > 0) os.write(buf, 0, n);
         }
 
-        long taken = queryDateTaken(uri);
-        String name = queryName(uri);
+        return finishItem(out, id, mime, queryName(uri), queryDateTaken(uri));
+    }
 
+    private JSObject finishItem(File out, String id, String mime, String name, long taken) {
+        boolean isVideo = mime.startsWith("video/");
         JSObject item = new JSObject();
         item.put("id", id);
         item.put("path", out.getAbsolutePath());
@@ -159,16 +168,194 @@ public class VaultPlugin extends Plugin {
         File thumb = makeThumb(out, isVideo, id);
         if (thumb != null) item.put("thumb", thumb.getAbsolutePath());
 
-        try {
-            MediaMetadataRetriever mmr = new MediaMetadataRetriever();
-            if (isVideo) {
+        if (isVideo) {
+            try {
+                MediaMetadataRetriever mmr = new MediaMetadataRetriever();
                 mmr.setDataSource(out.getAbsolutePath());
                 String d = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
                 if (d != null) item.put("duration", Long.parseLong(d) / 1000.0);
                 mmr.release();
-            }
-        } catch (Exception ignored) {}
+            } catch (Exception ignored) {}
+        }
         return item;
+    }
+
+    // ---------- ZIP : import ----------
+
+    @PluginMethod
+    public void importZip(PluginCall call) {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[] { "application/zip", "application/x-zip-compressed", "application/octet-stream" });
+        startActivityForResult(call, intent, "zipPickResult");
+    }
+
+    @ActivityCallback
+    private void zipPickResult(PluginCall call, ActivityResult result) {
+        if (call == null) return;
+        Intent data = result.getData();
+        if (result.getResultCode() != Activity.RESULT_OK || data == null || data.getData() == null) {
+            JSObject r = new JSObject();
+            r.put("items", new JSArray());
+            call.resolve(r);
+            return;
+        }
+        Uri uri = data.getData();
+        io.execute(() -> {
+            JSArray items0 = new JSArray();
+            String zipName = queryName(uri).replaceAll("(?i)\\.zip$", "");
+            try {
+                readZip(uri, StandardCharsets.UTF_8, items0);
+            } catch (Exception ex) {
+                deleteItems(items0);
+                items0 = new JSArray();
+                try {
+                    readZip(uri, java.nio.charset.Charset.forName("Cp437"), items0);
+                } catch (Exception ex2) {
+                    deleteItems(items0);
+                    call.reject("ZIP illisible", ex2);
+                    return;
+                }
+            }
+            JSObject r = new JSObject();
+            r.put("items", items0);
+            r.put("zipName", zipName);
+            call.resolve(r);
+        });
+    }
+
+    private void readZip(Uri uri, java.nio.charset.Charset cs, JSArray items) throws Exception {
+        try (InputStream raw = getContext().getContentResolver().openInputStream(uri);
+             ZipInputStream zin = new ZipInputStream(new BufferedInputStream(raw), cs)) {
+            ZipEntry e;
+            int done = 0;
+            byte[] buf = new byte[1 << 16];
+            while ((e = zin.getNextEntry()) != null) {
+                if (e.isDirectory()) continue;
+                String entry = e.getName().replace('\\', '/');
+                if (entry.startsWith("__MACOSX/") || entry.contains("/.") || entry.startsWith(".")) continue;
+                String base = entry.substring(entry.lastIndexOf('/') + 1);
+                int dot = base.lastIndexOf('.');
+                if (dot < 0) continue;
+                String ext = base.substring(dot + 1).toLowerCase(Locale.ROOT);
+                String mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext);
+                if (mime == null && ext.equals("heic")) mime = "image/heic";
+                if (mime == null || !(mime.startsWith("image/") || mime.startsWith("video/"))) continue;
+                String id = UUID.randomUUID().toString();
+                File out = new File(mediaDir(), id + "." + ext);
+                try (OutputStream os = new FileOutputStream(out)) {
+                    int n;
+                    while ((n = zin.read(buf)) > 0) os.write(buf, 0, n);
+                }
+                long t = e.getTime();
+                JSObject item = finishItem(out, id, mime, base, t > 0 ? t : 0);
+                int slash = entry.lastIndexOf('/');
+                String folder = slash > 0 ? entry.substring(0, slash) : "";
+                folder = folder.contains("/") ? folder.substring(folder.lastIndexOf('/') + 1) : folder;
+                item.put("folder", folder);
+                items.put(item);
+                done++;
+                JSObject p = new JSObject();
+                p.put("done", done);
+                notifyListeners("zipProgress", p);
+            }
+        }
+    }
+
+    private void deleteItems(JSArray items) {
+        for (int i = 0; i < items.length(); i++) {
+            try {
+                org.json.JSONObject o = items.getJSONObject(i);
+                new File(o.getString("path")).delete();
+                if (o.has("thumb")) new File(o.getString("thumb")).delete();
+            } catch (Exception ignored) {}
+        }
+    }
+
+    // ---------- ZIP : export ----------
+
+    @PluginMethod
+    public void exportZip(PluginCall call) {
+        if (Build.VERSION.SDK_INT < 29 && getPermissionState("storage") != PermissionState.GRANTED) {
+            requestPermissionForAlias("storage", call, "exportPermCallback");
+            return;
+        }
+        doExport(call);
+    }
+
+    @PermissionCallback
+    private void exportPermCallback(PluginCall call) {
+        if (getPermissionState("storage") == PermissionState.GRANTED) doExport(call);
+        else call.reject("Permission refusée", "denied");
+    }
+
+    private void doExport(PluginCall call) {
+        String name = call.getString("name", "Secret").replaceAll("[\\\\/:*?\"<>|]", "_") + ".zip";
+        JSArray entries = call.getArray("entries", new JSArray());
+        io.execute(() -> {
+            Uri dest = null;
+            try {
+                ContentResolver cr = getContext().getContentResolver();
+                OutputStream raw;
+                if (Build.VERSION.SDK_INT >= 29) {
+                    ContentValues v = new ContentValues();
+                    v.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
+                    v.put(MediaStore.MediaColumns.MIME_TYPE, "application/zip");
+                    v.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/Secret");
+                    v.put(MediaStore.MediaColumns.IS_PENDING, 1);
+                    dest = cr.insert(MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY), v);
+                    if (dest == null) throw new Exception("insert failed");
+                    raw = cr.openOutputStream(dest);
+                } else {
+                    File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "Secret");
+                    dir.mkdirs();
+                    raw = new FileOutputStream(new File(dir, name));
+                }
+                byte[] buf = new byte[1 << 16];
+                try (ZipOutputStream zos = new ZipOutputStream(new BufferedOutputStream(raw))) {
+                    zos.setLevel(Deflater.NO_COMPRESSION);
+                    java.util.HashSet<String> used = new java.util.HashSet<>();
+                    for (int i = 0; i < entries.length(); i++) {
+                        JSObject en = JSObject.fromJSONObject(entries.getJSONObject(i));
+                        File src = new File(en.getString("path", ""));
+                        if (!src.exists()) continue;
+                        String entryName = en.getString("name", src.getName());
+                        String unique = entryName;
+                        int k = 1;
+                        while (!used.add(unique.toLowerCase(Locale.ROOT))) {
+                            int dot = entryName.lastIndexOf('.');
+                            unique = dot > 0 ? entryName.substring(0, dot) + " (" + k + ")" + entryName.substring(dot) : entryName + " (" + k + ")";
+                            k++;
+                        }
+                        ZipEntry ze = new ZipEntry(unique);
+                        long t = en.has("time") ? en.getLong("time") : 0;
+                        if (t > 0) ze.setTime(t);
+                        zos.putNextEntry(ze);
+                        try (InputStream in = new FileInputStream(src)) {
+                            int n;
+                            while ((n = in.read(buf)) > 0) zos.write(buf, 0, n);
+                        }
+                        zos.closeEntry();
+                        JSObject p = new JSObject();
+                        p.put("done", i + 1);
+                        p.put("total", entries.length());
+                        notifyListeners("zipProgress", p);
+                    }
+                }
+                if (Build.VERSION.SDK_INT >= 29) {
+                    ContentValues done = new ContentValues();
+                    done.put(MediaStore.MediaColumns.IS_PENDING, 0);
+                    cr.update(dest, done, null, null);
+                }
+                JSObject r = new JSObject();
+                r.put("name", name);
+                call.resolve(r);
+            } catch (Exception e) {
+                if (dest != null) try { getContext().getContentResolver().delete(dest, null, null); } catch (Exception ignored) {}
+                call.reject("Échec de l'export", e);
+            }
+        });
     }
 
     private long queryDateTaken(Uri uri) {

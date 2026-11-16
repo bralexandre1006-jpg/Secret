@@ -36,6 +36,7 @@ const I = {
   selectI: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12.3l2.8 2.8L16.2 9.6"/></svg>',
   pencil: '<svg viewBox="0 0 24 24"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>',
   phone: '<svg viewBox="0 0 24 24"><rect x="6" y="2.5" width="12" height="19" rx="3"/><path d="M10.5 18.5h3"/></svg>',
+  zip: '<svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="3"/><path d="M12 3v2m0 2v2m0 2v2"/><rect x="10.5" y="13" width="3" height="4" rx="1"/></svg>',
   auto: '<svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 0 1 14-5.3M20 12a8 8 0 0 1-14 5.3"/><path d="M18 3v4h-4M6 21v-4h4"/></svg>'
 };
 
@@ -57,6 +58,8 @@ const WebVault = {
   async deleteFiles() {},
   async writeDb() {},
   async readDb() { return {}; },
+  async importZip() { throw new Error('android'); },
+  async exportZip() { throw new Error('android'); },
   async biometricAvailable() { return { available: false }; },
   async authenticate() { return { success: false }; },
   addListener() { return { remove() {} }; }
@@ -256,6 +259,10 @@ function catActions(c) {
     { label: 'Couverture depuis le téléphone', icon: I.phone, run: () => pickCover(c) }
   ];
   if (c.cover) list.push({ label: 'Couverture automatique', icon: I.auto, run: () => { const old = c.cover; c.cover = null; gc([old]); save(); refreshAll(); } });
+  list.push(
+    { label: 'Importer un ZIP', icon: I.zip, run: () => importZip(c, null) },
+    { label: 'Exporter en ZIP', icon: I.save, run: () => exportZip(c.name, catAlbums(c).flatMap(a => albumItems(a).map(m => zipEntry(m, a.name)))) }
+  );
   return list;
 }
 async function runSheet(title, actions) {
@@ -341,6 +348,7 @@ function albumActions(a, fromAlbum) {
       a.cat = c.id; c.albums.push(a.id); save(); refreshAll(); toast(`Album déplacé vers « ${c.name} »`);
     }
   }));
+  list.push({ label: 'Exporter en ZIP', icon: I.save, run: () => exportZip(a.name, albumItems(a).map(m => zipEntry(m))) });
   list.push(null, { label: "Supprimer l'album", icon: I.trash, danger: true, run: async () => {
     const ok = await dialog({ title: `Supprimer « ${a.name} » ?`, msg: `${plural(a.items.length, 'élément sera supprimé', 'éléments seront supprimés')} de Secret.`, ok: 'Supprimer', danger: true });
     if (!ok) return;
@@ -422,8 +430,19 @@ function openAlbum(a) {
       return;
     }
     if (act === 'menu') { albumMenu(a, true); return; }
-    if (act === 'add') { importInto(a); return; }
-    if (act === 's-save') { const list = items.filter(m => sel.has(m.id)); setSelecting(false); saveMany(list); return; }
+    if (act === 'add') {
+      const i = await sheet({ title: 'Importer', opts: [{ label: 'Photos et vidéos' }, { label: 'Fichier ZIP' }] });
+      if (i === 0) importInto(a); else if (i === 1) importZip(catOf(a), a);
+      return;
+    }
+    if (act === 's-save') {
+      const list = selected();
+      const i = await sheet({ title: plural(list.length, 'élément', 'éléments'), opts: [{ label: 'Enregistrer dans la galerie' }, { label: 'Exporter en ZIP' }] });
+      if (i == null) return;
+      setSelecting(false);
+      if (i === 0) saveMany(list); else exportZip(`${a.name} (${list.length})`, list.map(m => zipEntry(m)));
+      return;
+    }
     if (act === 's-cover') { const [id] = sel; await chooseCover(db.media[id], a); setSelecting(false); return; }
     if (act === 's-del') {
       const ids = [...sel];
@@ -529,6 +548,54 @@ async function importInto(a) {
     toast(`${plural(list.length, 'élément importé', 'éléments importés')}`);
     const top = topScreen().querySelector('.scroller'); if (top) requestAnimationFrame(() => top.scrollTo({ top: top.scrollHeight, behavior: 'smooth' }));
   } catch (e) { toast('Import impossible'); }
+  finally { busyExternal = false; sub && sub.remove && sub.remove(); }
+}
+
+const safeName = n => String(n || '').replace(/[\\/:*?"<>|]/g, '_').trim() || 'Album';
+function zipEntry(m, folder) {
+  const ext = (m.path.match(/\.[a-z0-9]+$/i) || [''])[0];
+  let name = m.name || (m.id.slice(0, 8) + ext);
+  if (!/\.[a-z0-9]+$/i.test(name)) name += ext;
+  return { path: m.path, name: (folder ? safeName(folder) + '/' : '') + safeName(name), time: m.taken || m.added || 0 };
+}
+
+async function importZip(cat, album) {
+  if (!isNative) { toast('Disponible sur Android'); return; }
+  busyExternal = true;
+  let sub;
+  try {
+    sub = await Vault.addListener('zipProgress', p => toast(`Importation ${p.done}…`, 0));
+    const r = await Vault.importZip();
+    const list = (r && r.items) || [];
+    if (!list.length) { if (r && r.zipName != null) toast('Aucune photo ou vidéo dans ce ZIP'); return; }
+    let albumsTouched = 0;
+    const add = (a, m) => { delete m.folder; db.media[m.id] = m; a.items.push(m.id); };
+    if (album) list.forEach(m => add(album, m));
+    else {
+      const groups = new Map();
+      list.forEach(m => { const k = m.folder || r.zipName || 'Import'; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(m); });
+      for (const [name, ms] of groups) {
+        let a = catAlbums(cat).find(x => x.name === name);
+        if (!a) { a = { id: uid(), name, cat: cat.id, cover: null, items: [], created: Date.now() }; db.albums[a.id] = a; cat.albums.push(a.id); }
+        ms.forEach(m => add(a, m)); albumsTouched++;
+      }
+    }
+    save(); refreshAll();
+    toast(`${plural(list.length, 'élément importé', 'éléments importés')}${albumsTouched ? ` dans ${plural(albumsTouched, 'album', 'albums')}` : ''}`, 2600);
+  } catch (e) { toast('ZIP illisible'); }
+  finally { busyExternal = false; sub && sub.remove && sub.remove(); }
+}
+
+async function exportZip(name, entries) {
+  if (!isNative) { toast('Disponible sur Android'); return; }
+  if (!entries.length) { toast('Rien à exporter'); return; }
+  busyExternal = true;
+  let sub;
+  try {
+    sub = await Vault.addListener('zipProgress', p => toast(`Export ${p.done}/${p.total}…`, 0));
+    const r = await Vault.exportZip({ name: safeName(name), entries });
+    toast(`${r.name} enregistré dans Téléchargements/Secret`, 3200);
+  } catch (e) { toast("Échec de l'export"); }
   finally { busyExternal = false; sub && sub.remove && sub.remove(); }
 }
 
