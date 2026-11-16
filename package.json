@@ -1,0 +1,15 @@
+{
+  "name": "secret",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "sync": "cp node_modules/@capacitor/core/dist/capacitor.js www/capacitor.js && cap sync android"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.6.2",
+    "@capacitor/core": "8.6.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.6.2"
+  }
+}

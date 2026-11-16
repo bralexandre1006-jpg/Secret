@@ -1,0 +1,15 @@
+{
+  "appId": "com.bralexandre.secret",
+  "appName": "Secret",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https",
+    "hostname": "localhost"
+  },
+  "plugins": {
+    "SystemBars": {
+      "style": "DARK",
+      "initialViewportFitValueHint": "cover"
+    }
+  }
+}
