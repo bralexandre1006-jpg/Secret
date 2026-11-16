@@ -30,7 +30,13 @@ const I = {
   mute: '<svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M17 9.5l5 5m0-5l-5 5"/></svg>',
   photos: '<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M3 16l5-5 4 4 3-3 6 6"/><circle cx="16" cy="9" r="1.5"/></svg>',
   album: '<svg viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="14" rx="3"/><path d="M7 3h10"/></svg>',
-  check: '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>'
+  check: '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+  move: '<svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M10 13h6m-2.5-2.5L16 13l-2.5 2.5"/></svg>',
+  addTo: '<svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="M12 8.5v7M8.5 12h7"/></svg>',
+  selectI: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12.3l2.8 2.8L16.2 9.6"/></svg>',
+  pencil: '<svg viewBox="0 0 24 24"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>',
+  phone: '<svg viewBox="0 0 24 24"><rect x="6" y="2.5" width="12" height="19" rx="3"/><path d="M10.5 18.5h3"/></svg>',
+  auto: '<svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 0 1 14-5.3M20 12a8 8 0 0 1-14 5.3"/><path d="M18 3v4h-4M6 21v-4h4"/></svg>'
 };
 
 /* ================= Plugin natif (+ repli navigateur) ================= */
@@ -223,6 +229,10 @@ $('#cats').addEventListener('click', e => {
   if (more) { e.stopPropagation(); catMenu(db.cats[+more.dataset.more]); return; }
   const c = e.target.closest('.cat'); if (c) openCategory(db.cats[+c.dataset.i]);
 });
+longPress($('#cats'), '.cat', t => {
+  const c = db.cats[+t.dataset.i];
+  contextMenu(t, { kind: 'cat', title: c.name, actions: catActions(c), open: () => openCategory(c) });
+});
 
 async function pickCover(target) {
   busyExternal = true;
@@ -236,14 +246,24 @@ async function pickCover(target) {
   } catch (e) { toast('Import impossible'); } finally { busyExternal = false; }
 }
 
-async function catMenu(c) {
-  const opts = [{ label: 'Renommer' }, { label: 'Couverture depuis le téléphone' }];
-  if (c.cover) opts.push({ label: 'Couverture automatique' });
-  const i = await sheet({ title: c.name, opts });
-  if (i === 0) { const n = await dialog({ title: 'Renommer', input: true, value: c.name, ok: 'Enregistrer' }); if (n) { c.name = n; save(); refreshAll(); } }
-  if (i === 1) pickCover(c);
-  if (i === 2) { const old = c.cover; c.cover = null; gc([old]); save(); refreshAll(); }
+async function rename(obj, title) {
+  const n = await dialog({ title, input: true, value: obj.name, ok: 'Enregistrer' });
+  if (n) { obj.name = n; save(); refreshAll(); }
 }
+function catActions(c) {
+  const list = [
+    { label: 'Renommer', icon: I.pencil, run: () => rename(c, 'Renommer la catégorie') },
+    { label: 'Couverture depuis le téléphone', icon: I.phone, run: () => pickCover(c) }
+  ];
+  if (c.cover) list.push({ label: 'Couverture automatique', icon: I.auto, run: () => { const old = c.cover; c.cover = null; gc([old]); save(); refreshAll(); } });
+  return list;
+}
+async function runSheet(title, actions) {
+  const acts = actions.filter(Boolean);
+  const i = await sheet({ title, opts: acts });
+  if (i != null) acts[i].run();
+}
+const catMenu = c => runSheet(c.name, catActions(c));
 
 /* ================= Pile d'écrans ================= */
 const stack = [];
@@ -302,40 +322,51 @@ function openCategory(c) {
     const al = e.target.closest('.album');
     if (al) openAlbum(db.albums[al.dataset.id]);
   });
-  longPress(el.querySelector('.albums'), '.album', t => albumMenu(db.albums[t.dataset.id]));
+  longPress(el.querySelector('.albums'), '.album', t => {
+    const a = db.albums[t.dataset.id];
+    contextMenu(t.querySelector('.thumb'), { kind: 'album', title: a.name, actions: albumActions(a), open: () => openAlbum(a) });
+  });
   pushScreen(el);
 }
 
-async function albumMenu(a, fromAlbum) {
-  const opts = [{ label: 'Renommer' }, { label: 'Couverture depuis le téléphone' }];
-  if (a.cover) opts.push({ label: 'Couverture automatique' });
-  opts.push({ label: "Supprimer l'album", danger: true, del: true });
-  const i = await sheet({ title: a.name, opts });
-  if (i == null) return;
-  const o = opts[i];
-  if (i === 0) { const n = await dialog({ title: 'Renommer', input: true, value: a.name, ok: 'Enregistrer' }); if (n) { a.name = n; save(); refreshAll(); } }
-  else if (i === 1) pickCover(a);
-  else if (o.del) {
-    const ok = await dialog({ title: `Supprimer « ${a.name} » ?`, msg: `${plural(a.items.length, 'élément sera supprimé', 'éléments seront supprimés')} définitivement de Secret.`, ok: 'Supprimer', danger: true });
+function albumActions(a, fromAlbum) {
+  const list = [
+    { label: 'Renommer', icon: I.pencil, run: () => rename(a, "Renommer l'album") },
+    { label: 'Couverture depuis le téléphone', icon: I.phone, run: () => pickCover(a) }
+  ];
+  if (a.cover) list.push({ label: 'Couverture automatique', icon: I.auto, run: () => { const old = a.cover; a.cover = null; gc([old]); save(); refreshAll(); } });
+  db.cats.filter(c => c.id !== a.cat).forEach(c => list.push({
+    label: `Déplacer vers « ${c.name} »`, icon: I.move, run: () => {
+      const from = catOf(a); if (from) from.albums = from.albums.filter(x => x !== a.id);
+      a.cat = c.id; c.albums.push(a.id); save(); refreshAll(); toast(`Album déplacé vers « ${c.name} »`);
+    }
+  }));
+  list.push(null, { label: "Supprimer l'album", icon: I.trash, danger: true, run: async () => {
+    const ok = await dialog({ title: `Supprimer « ${a.name} » ?`, msg: `${plural(a.items.length, 'élément sera supprimé', 'éléments seront supprimés')} de Secret.`, ok: 'Supprimer', danger: true });
     if (!ok) return;
     const ids = [...a.items, a.cover].filter(Boolean);
     const c = catOf(a); if (c) c.albums = c.albums.filter(x => x !== a.id);
     delete db.albums[a.id]; gc(ids); save();
-    if (fromAlbum) { const top = topScreen(); if (top._album === a) dismissLayer(top._close); }
+    const top = topScreen(); if (top._album === a) dismissLayer(top._close);
     refreshAll(); toast('Album supprimé');
-  } else { const old = a.cover; a.cover = null; gc([old]); save(); refreshAll(); }
+  } });
+  return list;
 }
+const albumMenu = a => runSheet(a.name, albumActions(a));
 
 /* ================= Album (grille façon Photos) ================= */
 function openAlbum(a) {
   const el = h(`<section class="screen"><div class="scroller">
-    <div class="nav"><button class="icon-btn glass back" aria-label="Retour">${I.back}</button><span class="title-sm"></span>
+    <div class="nav"><button class="icon-btn glass back" aria-label="Retour">${I.back}</button>
+      <button class="pill glass hidden" data-act="all">Tout sélectionner</button><span class="title-sm"></span>
       <div class="right"><button class="pill glass" data-act="select">Sélectionner</button>
       <button class="icon-btn glass" data-act="menu" aria-label="Options">${I.more}</button></div></div>
     <h1 class="big-title"></h1><p class="sub"></p><div class="grid"></div><div class="grid-foot"></div></div>
     <button class="fab glass" data-act="add" aria-label="Importer">${I.plus}</button>
     <div class="toolbar glass hidden">
       <button class="tb-btn" data-act="s-save">${I.save}<span>Enregistrer</span></button>
+      <button class="tb-btn" data-act="s-move" aria-label="Déplacer">${I.move}</button>
+      <button class="tb-btn" data-act="s-add" aria-label="Ajouter à un album">${I.addTo}</button>
       <button class="tb-btn" data-act="s-cover" aria-label="Couverture">${I.cover}</button>
       <button class="tb-btn danger" data-act="s-del" aria-label="Supprimer">${I.trash}</button>
     </div></section>`);
@@ -358,6 +389,9 @@ function openAlbum(a) {
   };
   function updateSelUI() {
     el.querySelector('[data-act="select"]').textContent = selecting ? 'Annuler' : 'Sélectionner';
+    const all = el.querySelector('[data-act="all"]');
+    all.classList.toggle('hidden', !selecting || !items.length);
+    all.textContent = items.length && sel.size === items.length ? 'Tout désélectionner' : 'Tout sélectionner';
     el.querySelector('.toolbar').classList.toggle('hidden', !selecting);
     el.querySelector('.fab').classList.toggle('hidden', selecting);
     el.querySelector('.back').classList.toggle('hidden', selecting);
@@ -374,10 +408,19 @@ function openAlbum(a) {
     updateSelUI();
   }
   el._render();
+  const paintSel = () => { grid.querySelectorAll('.cell').forEach(c => c.classList.toggle('sel', sel.has(items[+c.dataset.i].id))); updateSelUI(); };
+  const selected = () => items.filter(m => sel.has(m.id));
 
   el.addEventListener('click', async e => {
+    if (dragDone) { dragDone = false; return; }
     const act = e.target.closest('[data-act]')?.dataset.act;
     if (act === 'select') { setSelecting(!selecting); return; }
+    if (act === 'all') { if (sel.size === items.length) sel.clear(); else items.forEach(m => sel.add(m.id)); paintSel(); return; }
+    if (act === 's-move' || act === 's-add') {
+      const ids = selected().map(m => m.id);
+      if (await moveMedia(ids, a, act === 's-add')) setSelecting(false);
+      return;
+    }
     if (act === 'menu') { albumMenu(a, true); return; }
     if (act === 'add') { importInto(a); return; }
     if (act === 's-save') { const list = items.filter(m => sel.has(m.id)); setSelecting(false); saveMany(list); return; }
@@ -390,13 +433,52 @@ function openAlbum(a) {
     const cell = e.target.closest('.cell'); if (!cell) return;
     const m = items[+cell.dataset.i];
     if (selecting) { sel.has(m.id) ? sel.delete(m.id) : sel.add(m.id); cell.classList.toggle('sel', sel.has(m.id)); updateSelUI(); }
-    else openViewer(a, +cell.dataset.i, cell);
+    else openViewer(a, +cell.dataset.i);
   });
   longPress(grid, '.cell', cell => {
     if (selecting) return;
-    setSelecting(true); const m = items[+cell.dataset.i];
-    sel.add(m.id); cell.classList.add('sel'); updateSelUI();
+    const i = +cell.dataset.i, m = items[i];
+    contextMenu(cell, { kind: 'media', media: m, actions: mediaActions(m, a, () => {
+      setSelecting(true); sel.add(m.id); paintSel();
+    }), open: () => openViewer(a, i) });
   });
+
+  // Sélection par glissement (comme Photos iOS)
+  let drag = null, dragDone = false;
+  grid.addEventListener('pointerdown', e => {
+    if (!selecting) return;
+    const cell = e.target.closest('.cell'); if (!cell) return;
+    const i = +cell.dataset.i;
+    drag = { id: e.pointerId, x: e.clientX, y: e.clientY, lx: e.clientX, ly: e.clientY, start: i, val: !sel.has(items[i].id), base: new Set(sel), active: false };
+  });
+  const applyDrag = () => {
+    const c = document.elementFromPoint(drag.lx, drag.ly)?.closest('.cell'); if (!c || !grid.contains(c)) return;
+    const j = +c.dataset.i, lo = Math.min(drag.start, j), hi = Math.max(drag.start, j);
+    sel.clear(); drag.base.forEach(x => sel.add(x));
+    for (let k = lo; k <= hi; k++) drag.val ? sel.add(items[k].id) : sel.delete(items[k].id);
+    paintSel();
+  };
+  const autoScroll = () => {
+    if (!drag || !drag.active) return;
+    const r = sc.getBoundingClientRect();
+    const v = drag.ly < r.top + 110 ? -(r.top + 110 - drag.ly) / 6 : drag.ly > r.bottom - 110 ? (drag.ly - (r.bottom - 110)) / 6 : 0;
+    if (v) { sc.scrollTop += v; applyDrag(); }
+    requestAnimationFrame(autoScroll);
+  };
+  grid.addEventListener('pointermove', e => {
+    if (!drag || e.pointerId !== drag.id) return;
+    drag.lx = e.clientX; drag.ly = e.clientY;
+    if (!drag.active) {
+      const dx = Math.abs(e.clientX - drag.x), dy = Math.abs(e.clientY - drag.y);
+      if (dx > 7 && dx > dy) { drag.active = true; try { grid.setPointerCapture(e.pointerId); } catch (_) {} requestAnimationFrame(autoScroll); }
+      else if (dy > 10) { drag = null; return; }
+      else return;
+    }
+    applyDrag();
+  });
+  grid.addEventListener('touchmove', e => { if (drag && drag.active) e.preventDefault(); }, { passive: false });
+  const endDrag = () => { if (drag && drag.active) dragDone = true; drag = null; setTimeout(() => { dragDone = false; }, 350); };
+  grid.addEventListener('pointerup', endDrag); grid.addEventListener('pointercancel', endDrag);
   pinchColumns(sc, grid);
   pushScreen(el);
   requestAnimationFrame(() => { sc.scrollTop = sc.scrollHeight; });
@@ -419,13 +501,14 @@ function pinchColumns(sc, grid) {
 }
 
 function longPress(root, sel, fn) {
-  let t = 0, x = 0, y = 0, fired = false;
+  let t = 0, x = 0, y = 0, fired = false, cur = null;
   root.addEventListener('pointerdown', e => {
     const tg = e.target.closest(sel); if (!tg) return;
-    fired = false; x = e.clientX; y = e.clientY;
-    t = setTimeout(() => { fired = true; navigator.vibrate && navigator.vibrate(12); fn(tg); }, 480);
+    fired = false; x = e.clientX; y = e.clientY; cur = tg;
+    tg.classList.add('pressing');
+    t = setTimeout(() => { fired = true; tg.classList.remove('pressing'); fn(tg); }, 480);
   });
-  const cancel = e => { if (e.type === 'pointermove' && Math.hypot(e.clientX - x, e.clientY - y) < 10) return; clearTimeout(t); };
+  const cancel = e => { if (e.type === 'pointermove' && Math.hypot(e.clientX - x, e.clientY - y) < 10) return; clearTimeout(t); cur && cur.classList.remove('pressing'); };
   root.addEventListener('pointermove', cancel); root.addEventListener('pointerup', cancel); root.addEventListener('pointercancel', cancel);
   root.addEventListener('click', e => { if (fired) { e.stopPropagation(); e.preventDefault(); fired = false; } }, true);
   root.addEventListener('contextmenu', e => e.preventDefault());
@@ -481,13 +564,147 @@ async function chooseCover(m, a) {
   save(); refreshAll(); toast('Couverture mise à jour');
 }
 
+function mediaActions(m, a, onSelect) {
+  const list = [
+    { label: 'Enregistrer dans la galerie', icon: I.save, run: () => saveMany([m]) },
+    { label: 'Déplacer vers un album', icon: I.move, run: () => moveMedia([m.id], a, false) },
+    { label: 'Ajouter à un album', icon: I.addTo, run: () => moveMedia([m.id], a, true) },
+    { label: 'Utiliser comme couverture', icon: I.cover, run: () => chooseCover(m, a) }
+  ];
+  if (onSelect) list.push({ label: 'Sélectionner', icon: I.selectI, run: onSelect });
+  list.push(null, { label: 'Supprimer', icon: I.trash, danger: true, run: () => deleteMedia(a, [m.id]) });
+  return list;
+}
+
+async function moveMedia(ids, from, copy) {
+  if (!ids.length) return false;
+  const to = await pickAlbum(copy ? 'Ajouter à un album' : 'Déplacer vers un album', from);
+  if (!to) return false;
+  ids.forEach(id => { if (!to.items.includes(id)) to.items.push(id); });
+  if (!copy) from.items = from.items.filter(x => !ids.includes(x));
+  save(); refreshAll();
+  toast(`${plural(ids.length, 'élément', 'éléments')} ${copy ? 'ajouté' : 'déplacé'}${ids.length > 1 ? 's' : ''} vers « ${to.name} »`);
+  if (V && !copy) {
+    V.items = albumItems(V.a);
+    if (!V.items.length) dismissLayer(closeViewer);
+    else { V.idx = Math.min(V.idx, V.items.length - 1); resetZoom(); renderSlides(false); }
+  }
+  return true;
+}
+
+function pickAlbum(title, from) {
+  return new Promise(res => {
+    const L = $('#layer');
+    const bd = h('<div class="backdrop"></div>');
+    const rows = db.cats.map(c => {
+      const al = catAlbums(c).filter(x => x !== from);
+      return `<p class="phead">${esc(c.name)}</p>` + (al.length ? al.map(x => `<button class="prow" data-id="${x.id}">
+        <span class="th">${coverHTML(albumCover(x), false)}</span><span class="pn"><b>${esc(x.name)}</b><small>${x.items.length}</small></span></button>`).join('')
+        : '<p class="pnone">Aucun autre album</p>');
+    }).join('');
+    const sh = h(`<div class="sheet picker"><div class="group glass"><div class="head"><b>${esc(title)}</b></div>
+      <div class="plist"><button class="prow new" data-new="1"><span class="th">${I.plus}</span><span class="pn"><b>Nouvel album…</b></span></button>${rows}</div></div>
+      <div class="group glass"><button class="opt cancel" data-x="1">Annuler</button></div></div>`);
+    L.append(bd, sh);
+    requestAnimationFrame(() => requestAnimationFrame(() => { bd.classList.add('show'); sh.classList.add('show'); }));
+    let result = null, done = false, creating = false;
+    const close = () => {
+      if (done) return; done = true;
+      bd.classList.remove('show'); sh.classList.remove('show');
+      setTimeout(() => { bd.remove(); sh.remove(); }, 420);
+      if (!creating) res(result);
+    };
+    openLayer(close);
+    bd.onclick = () => dismissLayer(close);
+    sh.onclick = async e => {
+      if (e.target.closest('[data-x]')) { dismissLayer(close); return; }
+      if (e.target.closest('[data-new]')) {
+        creating = true; dismissLayer(close);
+        const name = await dialog({ title: 'Nouvel album', input: true, ok: 'Créer' });
+        if (!name) { res(null); return; }
+        const c = catOf(from) || db.cats[0];
+        const na = { id: uid(), name, cat: c.id, cover: null, items: [], created: Date.now() };
+        db.albums[na.id] = na; c.albums.push(na.id); save();
+        res(na); return;
+      }
+      const r = e.target.closest('[data-id]'); if (!r) return;
+      result = db.albums[r.dataset.id]; dismissLayer(close);
+    };
+  });
+}
+
+/* ================= Menu contextuel (appui long, style iOS) ================= */
+function contextMenu(src, { kind, media, title, actions, open }) {
+  const L = $('#layer');
+  const vw = innerWidth, vh = innerHeight;
+  const cs = getComputedStyle(document.documentElement);
+  const sat = parseFloat(cs.getPropertyValue('--safe-area-inset-top')) || 0;
+  const sab = parseFloat(cs.getPropertyValue('--safe-area-inset-bottom')) || 0;
+  const r = src.getBoundingClientRect();
+  const acts = actions;
+  const bd = h('<div class="ctx-bd"></div>');
+  const pv = h('<div class="ctx-prev"></div>');
+  let pw, ph, ratio = 1;
+  if (kind === 'media') {
+    const img = src.querySelector('img');
+    if (img && img.naturalWidth) ratio = img.naturalWidth / img.naturalHeight;
+    pv.innerHTML = media.type === 'video'
+      ? `<video src="${fileSrc(media.path)}" ${media.thumb ? `poster="${fileSrc(media.thumb)}"` : ''} muted autoplay loop playsinline></video>`
+      : `<img src="${fileSrc(media.thumb || media.path)}" alt="">`;
+    if (media.type === 'image') { const full = new Image(); full.onload = () => { const i = pv.querySelector('img'); if (i) i.src = full.src; }; full.src = fileSrc(media.path); }
+    pw = Math.min(vw - 48, 360); ph = pw / ratio;
+    const maxH = vh * 0.48; if (ph > maxH) { ph = maxH; pw = ph * ratio; }
+  } else {
+    pv.innerHTML = src.innerHTML;
+    pv.querySelectorAll('.more,.go').forEach(x => x.remove());
+    ratio = r.width / r.height;
+    pw = Math.min(kind === 'cat' ? vw - 32 : 230, r.width * 1.08); ph = pw / ratio;
+    const maxH = vh * 0.38; if (ph > maxH) { ph = maxH; pw = Math.min(vw - 32, ph * ratio); }
+  }
+  const menu = h(`<div class="ctx-menu glass">${title ? `<div class="ctx-title">${esc(title)}</div>` : ''}${acts.map((x, i) => x ? `<button class="ctx-item ${x.danger ? 'danger' : ''}" data-i="${i}"><span>${esc(x.label)}</span>${x.icon || ''}</button>` : '<div class="ctx-sep"></div>').join('')}</div>`);
+  pv.style.cssText = `left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px;border-radius:${getComputedStyle(src).borderRadius}`;
+  L.append(bd, pv, menu);
+  const mw = Math.min(290, vw - 32); menu.style.width = mw + 'px';
+  const mh = menu.offsetHeight;
+  const total = ph + 14 + mh;
+  let top = clamp((vh - total) / 2, sat + 16, Math.max(sat + 16, vh - sab - 16 - total));
+  const left = (vw - pw) / 2;
+  const mLeft = clamp(r.left + r.width / 2 - mw / 2, 16, vw - 16 - mw);
+  menu.style.cssText = `left:${kind === 'media' ? (vw - mw) / 2 : mLeft}px;top:${top + ph + 14}px;width:${mw}px`;
+  navigator.vibrate && navigator.vibrate(10);
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    bd.classList.add('show'); menu.classList.add('show'); pv.classList.add('lift');
+    pv.style.left = left + 'px'; pv.style.top = top + 'px'; pv.style.width = pw + 'px'; pv.style.height = ph + 'px';
+    pv.style.borderRadius = kind === 'cat' ? '30px' : '16px';
+  }));
+  let done = false;
+  const close = (fast) => {
+    if (done) return; done = true;
+    bd.classList.remove('show'); menu.classList.remove('show');
+    if (fast) pv.classList.add('fade');
+    else { pv.style.left = r.left + 'px'; pv.style.top = r.top + 'px'; pv.style.width = r.width + 'px'; pv.style.height = r.height + 'px'; pv.classList.remove('lift'); }
+    setTimeout(() => { pv.querySelectorAll('video').forEach(v => v.pause()); bd.remove(); pv.remove(); menu.remove(); }, 380);
+  };
+  let fast = false;
+  const closer = () => close(fast);
+  openLayer(closer);
+  bd.onclick = () => dismissLayer(closer);
+  pv.onclick = () => { if (done) return; fast = true; dismissLayer(closer); setTimeout(open, 60); };
+  menu.onclick = e => {
+    const b = e.target.closest('[data-i]'); if (!b || done) return;
+    const act = acts[+b.dataset.i];
+    fast = true; dismissLayer(closer);
+    setTimeout(() => act.run(), 120);
+  };
+}
+
 /* ================= Visionneuse ================= */
 let V = null;
 function openViewer(a, idx) {
   const el = $('#viewer');
   el.innerHTML = `<div class="track"></div>
     <div class="v-top"><button class="icon-btn glass" data-act="close" aria-label="Fermer">${I.back}</button>
-      <div class="meta"></div><span style="width:44px"></span></div>
+      <div class="meta"></div><button class="icon-btn glass" data-act="more" aria-label="Plus">${I.more}</button></div>
     <div class="v-bottom">
       <div class="vctl glass hidden">
         <button class="tb-btn" data-act="play" aria-label="Lecture">${I.pause}</button>
@@ -595,6 +812,7 @@ function viewerAction(act) {
     if (v && v.tagName === 'VIDEO') v.loop = db.settings.loop;
     updateViewerChrome(); toast(db.settings.loop ? 'Lecture en boucle activée' : 'Lecture en boucle désactivée');
   }
+  else if (act === 'more') runSheet('', mediaActions(m, V.a).filter(x => x && x.icon !== I.save && x.icon !== I.trash));
   else if (act === 'save') saveMany([m]);
   else if (act === 'cover') chooseCover(m, V.a);
   else if (act === 'del') {
