@@ -12,7 +12,7 @@
 | Données locales | Fichiers : `filesDir/vault/media` + `filesDir/vault/thumbs`. Métadonnées : `localStorage` clé `secret.db.v1` + copie `filesDir/vault/db.json` (restaurée si localStorage vide). Code PIN : `localStorage` clé `secret.pin` (hash SHA-256 salé). |
 
 ## Architecture
-- `www/index.html` / `styles.css` / `app.js` : UI style iOS liquid glass (sombre). `www/capacitor.js` = copie de `@capacitor/core` (régénérée par `npm run sync`).
+- `www/index.html` / `styles.css` / `app.js` : UI style iOS liquid glass (sombre). Police : Inter variable intégrée (`www/fonts/`, licence OFL), graisses renforcées façon iOS (SF Pro non redistribuable). `www/capacitor.js` = copie de `@capacitor/core` (régénérée par `npm run sync`).
 - Écrans : verrou (empreinte + PIN, animation cadenas ≤ 2 s) → accueil (2 catégories renommables, couverture photo/vidéo) → catégorie (albums) → album (grille façon Photos, pincer = 2/3/5 colonnes, sélection) → visionneuse (swipe, zoom, glisser vers le bas, vidéos en boucle, enregistrer dans la galerie, définir couverture).
 - Appui long (style iOS) : menu contextuel avec aperçu sur catégories, albums et photos (`contextMenu`) ; déplacer/ajouter vers un album (`moveMedia`, `pickAlbum`) ; sélection multiple par glissement + « Tout sélectionner » ; déplacer un album vers l'autre catégorie.
 - `android/app/src/main/java/com/bralexandre/secret/VaultPlugin.java` : `pickMedia` (copie dans le stockage privé + miniature), `saveToGallery` (MediaStore → Pictures/Secret ou Movies/Secret), `deleteFiles`, `writeDb`/`readDb`, `biometricAvailable`/`authenticate`.
