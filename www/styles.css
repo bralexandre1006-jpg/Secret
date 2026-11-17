@@ -258,7 +258,8 @@ button.glass:active { background: linear-gradient(160deg, rgba(255,255,255,.32),
   font-size: 14px; font-weight: 600; text-align: center; transition: opacity .2s, transform .3s var(--spring);
 }
 .hud.show { opacity: 1; transform: translate(-50%, -50%); }
-.spin { width: 26px; height: 26px; border-radius: 50%; border: 2.5px solid rgba(255,255,255,.25); border-top-color: #fff; animation: spin .8s linear infinite; }
+.spin { width: 26px; height: 26px; border-radius: 50%; border: 2.5px solid rgba(255,255,255,.25); border-top-color: #fff; }
+.hud.show .spin { animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* ---------- Visionneuse (façon Photos iOS) ---------- */
@@ -320,9 +321,9 @@ button.glass:active { background: linear-gradient(160deg, rgba(255,255,255,.32),
 .vctl .time { font-size: 12px; font-variant-numeric: tabular-nums; color: var(--fg2); min-width: 34px; text-align: center; }
 .scrub { flex: 1; height: 28px; display: flex; align-items: center; touch-action: none; }
 .scrub .bar { position: relative; height: 4px; flex: 1; border-radius: 2px; background: rgba(255,255,255,.25); }
-.scrub .fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 2px; background: #fff; }
-.scrub .knob { position: absolute; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; background: #fff; box-shadow: 0 1px 6px rgba(0,0,0,.4); transition: transform .2s var(--spring); }
-.scrub.drag .knob { transform: scale(1.4); }
+.scrub .fill { position: absolute; left: 0; top: 0; bottom: 0; width: 100%; border-radius: 2px; background: #fff; transform-origin: 0 50%; transform: scaleX(0); will-change: transform; }
+.scrub .knob { position: absolute; left: 0; top: 50%; will-change: transform; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; background: #fff; box-shadow: 0 1px 6px rgba(0,0,0,.4); transition: transform .2s var(--spring); }
+.scrub.drag .knob { width: 18px; height: 18px; margin: -9px 0 0 -9px; }
 .cell .favb { position: absolute; left: 5px; bottom: 3px; }
 .cell .favb svg { width: 14px; height: 14px; filter: drop-shadow(0 1px 2px rgba(0,0,0,.6)); }
 .selecting .cell .favb { display: none; }

@@ -65,6 +65,7 @@ const WebVault = {
   async importZip() { throw new Error('android'); },
   async canDeleteFromGallery() { return { available: false }; },
   async appInfo() { return { version: '' }; },
+  async boost() {},
   async ensurePreviews() { return { previews: {} }; },
   async deleteFromGallery() { return { deleted: false }; },
   async exportZip() { throw new Error('android'); },
@@ -920,6 +921,7 @@ function openViewer(a, idx, cell) {
       </div>
     </div>`;
   filmReset();
+  document.querySelectorAll('#app video.cover-media').forEach(x => x.pause());
   V = { el, a, openedAt: performance.now(), items: viewItems(a), idx, slides: new Map(), s: 1, tx: 0, ty: 0, chrome: true, muted: false };
   el.classList.remove('hidden', 'chromeless', 'closing');
   el.style.background = '';
@@ -964,6 +966,7 @@ function closeViewer() {
   const cell = grid && grid.querySelector(`.cell[data-i="${v.idx}"]`);
   const cimg = cell && cell.querySelector('img');
   Bars && Bars.show().catch(() => {});
+  setTimeout(() => topScreen().querySelectorAll('video.cover-media').forEach(x => x.play().catch(() => {})), 420);
   const cleanup = () => {
     v.slides.forEach(s => { const x = s.querySelector('video'); if (x) { x.pause(); x.removeAttribute('src'); x.load(); } });
     el.classList.add('hidden'); el.classList.remove('closing', 'chromeless'); el.innerHTML = ''; el.style.background = '';
@@ -1101,13 +1104,18 @@ function bindVideo() {
   v._bound = true;
   const ctl = V.el.querySelector('.vctl');
   const fill = ctl.querySelector('.fill'), knob = ctl.querySelector('.knob');
-  const tick = () => {
+  const bar = ctl.querySelector('.bar'), tCur = ctl.querySelector('.t-cur'), tDur = ctl.querySelector('.t-dur'), pb = ctl.querySelector('[data-act="play"]');
+  let lastSec = -1, lastPaused = null, lastT = 0;
+  const tick = now => {
     if (!V || curEl() !== v) return;
-    const p = v.duration ? v.currentTime / v.duration : 0;
-    fill.style.width = p * 100 + '%'; knob.style.left = p * 100 + '%';
-    ctl.querySelector('.t-cur').textContent = fmtDur(v.currentTime);
-    ctl.querySelector('.t-dur').textContent = fmtDur(v.duration);
-    ctl.querySelector('[data-act="play"]').innerHTML = v.paused ? I.play : I.pause;
+    if (!now || now - lastT > 90) {
+      lastT = now || 0;
+      const p = v.duration ? v.currentTime / v.duration : 0;
+      fill.style.transform = `scaleX(${p})`; knob.style.transform = `translateX(${p * bar.clientWidth}px)`;
+      const sec = Math.floor(v.currentTime);
+      if (sec !== lastSec) { lastSec = sec; tCur.textContent = fmtDur(v.currentTime); tDur.textContent = fmtDur(v.duration); }
+      if (v.paused !== lastPaused) { lastPaused = v.paused; pb.innerHTML = v.paused ? I.play : I.pause; }
+    }
     if (!v.paused) requestAnimationFrame(tick);
   };
   v._tick = tick;
@@ -1334,6 +1342,18 @@ function go(dir) {
   el.addEventListener('pointermove', e => { if (scrubbing) seek(e); });
   const stopScrub = () => { if (!scrubbing) return; scrubbing = false; el.querySelector('.scrub')?.classList.remove('drag'); };
   el.addEventListener('pointerup', stopScrub); el.addEventListener('pointercancel', stopScrub);
+})();
+
+/* Taux de rafraîchissement élevé seulement pendant les interactions (évite la chauffe) */
+(function adaptiveRefresh() {
+  if (!isNative) return;
+  let on = false, t = 0;
+  const up = () => { clearTimeout(t); if (!on) { on = true; Vault.boost({ on: true }).catch(() => {}); } };
+  const idle = () => { clearTimeout(t); t = setTimeout(() => { on = false; Vault.boost({ on: false }).catch(() => {}); }, 1800); };
+  document.addEventListener('touchstart', up, { passive: true, capture: true });
+  document.addEventListener('touchend', idle, { passive: true, capture: true });
+  document.addEventListener('touchcancel', idle, { passive: true, capture: true });
+  document.addEventListener('visibilitychange', () => { if (document.hidden) { clearTimeout(t); on = false; Vault.boost({ on: false }).catch(() => {}); } });
 })();
 
 /* Vidéos : masquées jusqu'à la première image réellement affichée (évite les images parasites d'Android) */

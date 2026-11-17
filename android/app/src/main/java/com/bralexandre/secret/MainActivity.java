@@ -13,7 +13,7 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(VaultPlugin.class);
         super.onCreate(savedInstanceState);
-        requestHighRefreshRate();
+        findBestMode();
         tuneWebView();
     }
 
@@ -27,10 +27,14 @@ public class MainActivity extends BridgeActivity {
         } catch (Exception ignored) {}
     }
 
-    // Les WebView sont souvent bridées à 60 Hz sur HyperOS : on demande le mode d'affichage le plus rapide.
-    private void requestHighRefreshRate() {
+    // HyperOS bride souvent les WebView à 60 Hz. On ne monte au taux maximal que pendant
+    // les interactions (demandé par le JS), puis on rend la main au mode adaptatif pour éviter la chauffe.
+    private int bestModeId = 0;
+    private float bestRate = 0f;
+    private boolean high = false;
+
+    private void findBestMode() {
         try {
-            if (Build.VERSION.SDK_INT < 23) return;
             Display d = Build.VERSION.SDK_INT >= 30 ? getDisplay() : getWindowManager().getDefaultDisplay();
             if (d == null) return;
             Display.Mode cur = d.getMode();
@@ -39,10 +43,21 @@ public class MainActivity extends BridgeActivity {
                 if (m.getPhysicalWidth() == cur.getPhysicalWidth() && m.getPhysicalHeight() == cur.getPhysicalHeight()
                         && m.getRefreshRate() > best.getRefreshRate()) best = m;
             }
-            WindowManager.LayoutParams lp = getWindow().getAttributes();
-            lp.preferredDisplayModeId = best.getModeId();
-            lp.preferredRefreshRate = best.getRefreshRate();
-            getWindow().setAttributes(lp);
+            bestModeId = best.getModeId();
+            bestRate = best.getRefreshRate();
         } catch (Exception ignored) {}
+    }
+
+    public void setHighRefresh(boolean on) {
+        runOnUiThread(() -> {
+            try {
+                if (on == high || bestModeId == 0) return;
+                high = on;
+                WindowManager.LayoutParams lp = getWindow().getAttributes();
+                lp.preferredDisplayModeId = on ? bestModeId : 0;
+                lp.preferredRefreshRate = on ? bestRate : 0f;
+                getWindow().setAttributes(lp);
+            } catch (Exception ignored) {}
+        });
     }
 }

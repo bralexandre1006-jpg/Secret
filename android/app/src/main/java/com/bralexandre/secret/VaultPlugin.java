@@ -110,6 +110,13 @@ public class VaultPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void boost(PluginCall call) {
+        boolean on = Boolean.TRUE.equals(call.getBoolean("on", false));
+        if (getActivity() instanceof MainActivity) ((MainActivity) getActivity()).setHighRefresh(on);
+        call.resolve();
+    }
+
+    @PluginMethod
     public void appInfo(PluginCall call) {
         JSObject o = new JSObject();
         try {
