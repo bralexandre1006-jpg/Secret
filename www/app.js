@@ -317,7 +317,13 @@ function pushScreen(el) {
   el._close = close;
   openLayer(close);
   const sc = el.querySelector('.scroller'), nav = el.querySelector('.nav');
-  if (sc && nav) sc.addEventListener('scroll', () => nav.classList.toggle('scrolled', sc.scrollTop > 44), { passive: true });
+  if (sc && nav) {
+    let on = false, raf = 0;
+    sc.addEventListener('scroll', () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => { raf = 0; const v = sc.scrollTop > 44; if (v !== on) { on = v; nav.classList.toggle('scrolled', v); } });
+    }, { passive: true });
+  }
   el.querySelector('.back')?.addEventListener('click', () => dismissLayer(close));
 }
 function refreshAll() { renderHome(); stack.forEach(s => s._render && s._render()); }
@@ -422,7 +428,7 @@ function openAlbum(a) {
     seg.querySelectorAll('[data-kind]').forEach(b => b.classList.toggle('on', b.dataset.kind === k));
     grid.className = `grid c${db.settings.cols}${selecting ? ' selecting' : ''}`;
     const key = k + '|' + items.map(m => m.id + (m.fav ? '*' : '') + (m.ai ? '~' : '')).join(',');
-    if (key !== el._key) {
+    if (key !== el._key && !el._defer) {
       el._key = key;
       let month = '';
       grid.innerHTML = items.map((m, i) => {
@@ -464,7 +470,12 @@ function openAlbum(a) {
     grid.querySelectorAll('.cell.sel').forEach(c => c.classList.remove('sel'));
     updateSelUI();
   }
+  el._defer = albumItems(a).length > 48;
   el._render();
+  if (el._defer) setTimeout(() => {
+    el._defer = false; el._render();
+    if (a.sort !== 'new') requestAnimationFrame(() => { sc.scrollTop = sc.scrollHeight; });
+  }, 470);
   const selectAll = () => { setSelecting(true); items.forEach(m => sel.add(m.id)); paintSel(); };
   const paintSel = () => { grid.querySelectorAll('.cell').forEach(c => c.classList.toggle('sel', sel.has(items[+c.dataset.i].id))); updateSelUI(); };
   const selected = () => items.filter(m => sel.has(m.id));
@@ -526,6 +537,7 @@ function openAlbum(a) {
     navigator.vibrate && navigator.vibrate(12);
     setSelecting(true); sel.add(m.id); paintSel();
     drag = { touch: !!p.touch, x: p.x, y: p.y, lx: p.x, ly: p.y, start: i, val: true, base: new Set(sel), active: true };
+    listenDrag(true);
     requestAnimationFrame(autoScroll);
   });
 
@@ -556,25 +568,30 @@ function openAlbum(a) {
     drag.lx = e.clientX; drag.ly = e.clientY;
     if (!drag.active) {
       const dx = Math.abs(e.clientX - drag.x), dy = Math.abs(e.clientY - drag.y);
-      if (dx > 7 && dx > dy) { drag.active = true; try { grid.setPointerCapture(e.pointerId); } catch (_) {} requestAnimationFrame(autoScroll); }
+      if (dx > 7 && dx > dy) { drag.active = true; listenDrag(true); try { grid.setPointerCapture(e.pointerId); } catch (_) {} requestAnimationFrame(autoScroll); }
       else if (dy > 10) { drag = null; return; }
       else return;
     }
     applyDrag();
   });
-  grid.addEventListener('touchmove', e => {
+  const onDragTouch = e => {
     if (!drag || !drag.active) return;
     e.preventDefault();
     if (drag.touch) { const t = e.touches[0]; drag.lx = t.clientX; drag.ly = t.clientY; applyDrag(); }
-  }, { passive: false });
-  const endDrag = () => { if (drag && drag.active) dragDone = true; drag = null; setTimeout(() => { dragDone = false; }, 350); };
+  };
+  let dragListen = false;
+  const listenDrag = on => {
+    if (on === dragListen) return; dragListen = on;
+    on ? grid.addEventListener('touchmove', onDragTouch, { passive: false }) : grid.removeEventListener('touchmove', onDragTouch);
+  };
+  const endDrag = () => { if (drag && drag.active) dragDone = true; drag = null; listenDrag(false); setTimeout(() => { dragDone = false; }, 350); };
   grid.addEventListener('pointerup', e => { if (drag && !drag.touch) endDrag(); });
   grid.addEventListener('pointercancel', e => { if (drag && !drag.touch) endDrag(); });
   grid.addEventListener('touchend', () => { if (drag && drag.touch) endDrag(); });
   grid.addEventListener('touchcancel', () => { if (drag && drag.touch) endDrag(); });
   pinchColumns(sc, grid);
   pushScreen(el);
-  requestAnimationFrame(() => { sc.scrollTop = sc.scrollHeight; });
+  if (!el._defer && a.sort !== 'new') requestAnimationFrame(() => { sc.scrollTop = sc.scrollHeight; });
 }
 
 function pinchColumns(sc, grid) {

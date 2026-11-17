@@ -3,6 +3,7 @@ package com.bralexandre.secret;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.Display;
+import android.webkit.WebView;
 import android.view.WindowManager;
 
 import com.getcapacitor.BridgeActivity;
@@ -13,6 +14,17 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(VaultPlugin.class);
         super.onCreate(savedInstanceState);
         requestHighRefreshRate();
+        tuneWebView();
+    }
+
+    private void tuneWebView() {
+        try {
+            WebView wv = getBridge().getWebView();
+            wv.getSettings().setOffscreenPreRaster(true);
+            wv.setVerticalScrollBarEnabled(false);
+            wv.setHorizontalScrollBarEnabled(false);
+            if (Build.VERSION.SDK_INT >= 26) wv.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false);
+        } catch (Exception ignored) {}
     }
 
     // Les WebView sont souvent bridées à 60 Hz sur HyperOS : on demande le mode d'affichage le plus rapide.
