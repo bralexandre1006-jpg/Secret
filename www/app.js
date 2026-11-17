@@ -100,6 +100,8 @@ async function loadDb() {
 
 const sortKey = m => m.taken || m.added || 0;
 const albumItems = a => a.items.map(id => db.media[id]).filter(Boolean).sort((x, y) => sortKey(x) - sortKey(y));
+const kindOf = () => db.settings.kind || 'all';
+const viewItems = a => { const k = kindOf(); const l = albumItems(a); return k === 'all' ? l : l.filter(m => k === 'ai' ? m.ai : !m.ai); };
 const albumCover = a => db.media[a.cover] || (a.items.length ? db.media[a.items[a.items.length - 1]] : null);
 const catAlbums = c => c.albums.map(id => db.albums[id]).filter(Boolean);
 const catCover = c => db.media[c.cover] || catAlbums(c).map(albumCover).find(Boolean) || null;
@@ -328,7 +330,7 @@ function openCategory(c) {
     el.querySelector('.big-title').textContent = c.name;
     el.querySelector('.sub').textContent = plural(list.length, 'album', 'albums');
     el.querySelector('.albums').innerHTML = list.length ? list.map(a => `<button class="album" data-id="${a.id}">
-        <div class="thumb">${coverHTML(albumCover(a), false)}</div>
+        <div class="thumb">${coverHTML(albumCover(a), !!a.cover && (db.media[a.cover] || {}).type === 'video')}</div>
         <p class="name">${esc(a.name)}</p><p class="count">${a.items.length}</p></button>`).join('')
       : `<div class="empty" style="grid-column:1/-1">${I.album}<b>Aucun album</b>Touchez + pour créer votre premier album.</div>`;
   };
@@ -387,13 +389,16 @@ function openAlbum(a) {
       <button class="pill glass hidden" data-act="all">Tout sélectionner</button><span class="title-sm"></span>
       <div class="right"><button class="pill glass" data-act="select">Sélectionner</button>
       <button class="icon-btn glass" data-act="menu" aria-label="Options">${I.more}</button></div></div>
-    <h1 class="big-title"></h1><p class="sub"></p><div class="grid"></div><div class="grid-foot"></div></div>
+    <h1 class="big-title"></h1><p class="sub"></p>
+    <div class="seg glass"><i class="seg-thumb"></i><button data-kind="all">Tout</button><button data-kind="real">Real</button><button data-kind="ai">IA</button></div>
+    <div class="grid"></div><div class="grid-foot"></div></div>
     <button class="fab glass" data-act="add" aria-label="Importer">${I.plus}</button>
     <div class="toolbar glass hidden">
       <button class="tb-btn" data-act="s-save" aria-label="Télécharger">${I.save}</button>
       <button class="tb-btn" data-act="s-zip" aria-label="Exporter en ZIP">${I.zip}</button>
       <button class="tb-btn" data-act="s-move" aria-label="Déplacer">${I.move}</button>
       <button class="tb-btn" data-act="s-add" aria-label="Ajouter à un album">${I.addTo}</button>
+      <button class="tb-btn tb-ai" data-act="s-ai" aria-label="Mention IA">IA</button>
       <button class="tb-btn" data-act="s-cover" aria-label="Couverture">${I.cover}</button>
       <button class="tb-btn danger" data-act="s-del" aria-label="Supprimer">${I.trash}</button>
     </div></section>`);
@@ -402,11 +407,15 @@ function openAlbum(a) {
   let items = [], selecting = false; const sel = new Set();
   el._render = () => {
     if (!db.albums[a.id]) return;
-    items = albumItems(a);
+    items = viewItems(a);
+    const all = albumItems(a), nAi = all.filter(m => m.ai).length;
     el.querySelector('.big-title').textContent = a.name;
-    el.querySelector('.sub').textContent = countLabel(items);
+    el.querySelector('.sub').textContent = countLabel(all) + (nAi ? ` · ${nAi} IA` : '');
+    const k = kindOf(), seg = el.querySelector('.seg');
+    seg.dataset.k = k;
+    seg.querySelectorAll('[data-kind]').forEach(b => b.classList.toggle('on', b.dataset.kind === k));
     grid.className = `grid c${db.settings.cols}${selecting ? ' selecting' : ''}`;
-    const key = items.map(m => m.id + (m.fav ? '*' : '')).join(',');
+    const key = k + '|' + items.map(m => m.id + (m.fav ? '*' : '') + (m.ai ? '~' : '')).join(',');
     if (key !== el._key) {
       el._key = key;
       let month = '';
@@ -415,10 +424,12 @@ function openAlbum(a) {
         const head = mo !== month ? `<div class="mhead">${esc(mo)}</div>` : '';
         month = mo;
         return `${head}<div class="cell${sel.has(m.id) ? ' sel' : ''}" data-i="${i}">
-      ${m.thumb ? `<img src="${fileSrc(m.thumb)}" loading="lazy" decoding="async" alt="">` : `<div class="cover-empty ph-${i % 4}">${I.photos}</div>`}
-      ${m.type === 'video' ? `<span class="dur">${fmtDur(m.duration)}</span>` : ''}${m.fav ? `<span class="favb">${I.heartOn}</span>` : ''}<span class="check">${I.check}</span></div>`;
+      ${m.thumb ? `<img src="${fileSrc(m.thumb)}" loading="lazy" decoding="async" draggable="false" alt="">` : `<div class="cover-empty ph-${i % 4}">${I.photos}</div>`}
+      ${m.type === 'video' ? `<span class="dur">${fmtDur(m.duration)}</span>` : ''}${m.fav ? `<span class="favb">${I.heartOn}</span>` : ''}${m.ai ? '<span class="aib">IA</span>' : ''}<span class="check">${I.check}</span></div>`;
       }).join('');
-      if (!items.length) grid.innerHTML = `<div class="empty" style="grid-column:1/-1">${I.photos}<b>Album vide</b>Touchez + pour importer des photos et des vidéos.</div>`;
+      if (!items.length) grid.innerHTML = all.length
+        ? `<div class="empty" style="grid-column:1/-1">${I.photos}<b>Aucun élément ${k === 'ai' ? 'IA' : 'Real'}</b>${k === 'ai' ? 'Sélectionnez des photos puis touchez « IA » pour les marquer.' : 'Tous les éléments de cet album sont marqués IA.'}</div>`
+        : `<div class="empty" style="grid-column:1/-1">${I.photos}<b>Album vide</b>Touchez + pour importer des photos et des vidéos.</div>`;
     }
     el.querySelector('.grid-foot').textContent = items.length ? countLabel(items) : '';
     updateSelUI();
@@ -439,6 +450,7 @@ function openAlbum(a) {
     el.querySelector('.nav').classList.toggle('scrolled', sc.scrollTop > 44);
     el.querySelectorAll('.toolbar .tb-btn').forEach(b => b.disabled = !sel.size);
     el.querySelector('[data-act="s-cover"]').disabled = sel.size !== 1;
+    el.querySelector('.seg').classList.toggle('hidden', selecting);
   }
   function setSelecting(on) {
     selecting = on; sel.clear();
@@ -447,6 +459,7 @@ function openAlbum(a) {
     updateSelUI();
   }
   el._render();
+  const selectAll = () => { setSelecting(true); items.forEach(m => sel.add(m.id)); paintSel(); };
   const paintSel = () => { grid.querySelectorAll('.cell').forEach(c => c.classList.toggle('sel', sel.has(items[+c.dataset.i].id))); updateSelUI(); };
   const selected = () => items.filter(m => sel.has(m.id));
 
@@ -460,7 +473,20 @@ function openAlbum(a) {
       if (await moveMedia(ids, a, act === 's-add')) setSelecting(false);
       return;
     }
-    if (act === 'menu') { albumMenu(a, true); return; }
+    if (act === 'menu') {
+      runSheet(a.name, [items.length && { label: 'Tout sélectionner', icon: I.selectI, run: selectAll }, ...albumActions(a)]);
+      return;
+    }
+    const kb = e.target.closest('[data-kind]');
+    if (kb) { db.settings.kind = kb.dataset.kind; save(); el._render(); sc.scrollTo({ top: 0 }); return; }
+    if (act === 's-ai') {
+      const list = selected(); if (!list.length) return;
+      const i = await sheet({ title: plural(list.length, 'élément', 'éléments'), opts: [{ label: 'Mentionner « IA »' }, { label: 'Mentionner « Real »' }] });
+      if (i == null) return;
+      list.forEach(m => { m.ai = i === 0; });
+      save(); setSelecting(false); refreshAll();
+      return;
+    }
     if (act === 'add') {
       const i = await sheet({ title: 'Importer', opts: [{ label: 'Photos et vidéos' }, { label: 'Fichier ZIP' }] });
       if (i === 0) importInto(a); else if (i === 1) importZip(catOf(a), a);
@@ -484,8 +510,7 @@ function openAlbum(a) {
     const i = +cell.dataset.i, m = items[i];
     navigator.vibrate && navigator.vibrate(12);
     setSelecting(true); sel.add(m.id); paintSel();
-    drag = { id: p.pointerId, x: p.x, y: p.y, lx: p.x, ly: p.y, start: i, val: true, base: new Set(sel), active: true };
-    try { grid.setPointerCapture(p.pointerId); } catch (_) {}
+    drag = { touch: !!p.touch, x: p.x, y: p.y, lx: p.x, ly: p.y, start: i, val: true, base: new Set(sel), active: true };
     requestAnimationFrame(autoScroll);
   });
 
@@ -512,7 +537,7 @@ function openAlbum(a) {
     requestAnimationFrame(autoScroll);
   };
   grid.addEventListener('pointermove', e => {
-    if (!drag || e.pointerId !== drag.id) return;
+    if (!drag || (drag.touch ? true : drag.id !== undefined && e.pointerId !== drag.id)) return;
     drag.lx = e.clientX; drag.ly = e.clientY;
     if (!drag.active) {
       const dx = Math.abs(e.clientX - drag.x), dy = Math.abs(e.clientY - drag.y);
@@ -522,9 +547,16 @@ function openAlbum(a) {
     }
     applyDrag();
   });
-  grid.addEventListener('touchmove', e => { if (drag && drag.active) e.preventDefault(); }, { passive: false });
+  grid.addEventListener('touchmove', e => {
+    if (!drag || !drag.active) return;
+    e.preventDefault();
+    if (drag.touch) { const t = e.touches[0]; drag.lx = t.clientX; drag.ly = t.clientY; applyDrag(); }
+  }, { passive: false });
   const endDrag = () => { if (drag && drag.active) dragDone = true; drag = null; setTimeout(() => { dragDone = false; }, 350); };
-  grid.addEventListener('pointerup', endDrag); grid.addEventListener('pointercancel', endDrag);
+  grid.addEventListener('pointerup', e => { if (drag && !drag.touch) endDrag(); });
+  grid.addEventListener('pointercancel', e => { if (drag && !drag.touch) endDrag(); });
+  grid.addEventListener('touchend', () => { if (drag && drag.touch) endDrag(); });
+  grid.addEventListener('touchcancel', () => { if (drag && drag.touch) endDrag(); });
   pinchColumns(sc, grid);
   pushScreen(el);
   requestAnimationFrame(() => { sc.scrollTop = sc.scrollHeight; });
@@ -548,19 +580,26 @@ function pinchColumns(sc, grid) {
 
 function longPress(root, sel, fn) {
   let t = 0, x = 0, y = 0, fired = false, cur = null;
-  root.addEventListener('pointerdown', e => {
-    const tg = e.target.closest(sel); if (!tg) return;
-    fired = false; x = e.clientX; y = e.clientY; cur = tg;
+  const clear = () => { clearTimeout(t); cur && cur.classList.remove('pressing'); cur = null; };
+  const start = (tg, cx, cy, touch) => {
+    clear(); fired = false; x = cx; y = cy; cur = tg;
     tg.classList.add('pressing');
-    const pid = e.pointerId;
-    t = setTimeout(() => { fired = true; tg.classList.remove('pressing'); fn(tg, { pointerId: pid, x, y }); }, 450);
-  });
-  const cancel = e => { if (e.type === 'pointermove' && Math.hypot(e.clientX - x, e.clientY - y) < 10) return; clearTimeout(t); cur && cur.classList.remove('pressing'); };
-  ['pointerup', 'pointercancel', 'touchend', 'touchcancel'].forEach(ev => document.addEventListener(ev, () => { clearTimeout(t); cur && cur.classList.remove('pressing'); }, true));
-  root.addEventListener('scroll', () => { clearTimeout(t); cur && cur.classList.remove('pressing'); }, { passive: true, capture: true });
-  root.addEventListener('pointermove', cancel); root.addEventListener('pointerup', cancel); root.addEventListener('pointercancel', cancel);
+    t = setTimeout(() => { fired = true; tg.classList.remove('pressing'); cur = null; fn(tg, { x, y, touch }); }, 420);
+  };
+  root.addEventListener('touchstart', e => {
+    if (e.touches.length > 1) { clear(); return; }
+    const tg = e.target.closest(sel); if (!tg) return;
+    start(tg, e.touches[0].clientX, e.touches[0].clientY, true);
+  }, { passive: true });
+  root.addEventListener('touchmove', e => { const p = e.touches[0]; if (cur && Math.hypot(p.clientX - x, p.clientY - y) > 10) clear(); }, { passive: true });
+  root.addEventListener('touchend', clear); root.addEventListener('touchcancel', clear);
+  root.addEventListener('pointerdown', e => { if (e.pointerType === 'touch') return; const tg = e.target.closest(sel); if (tg) start(tg, e.clientX, e.clientY, false); });
+  root.addEventListener('pointermove', e => { if (e.pointerType !== 'touch' && cur && Math.hypot(e.clientX - x, e.clientY - y) > 10) clear(); });
+  root.addEventListener('pointerup', e => { if (e.pointerType !== 'touch') clear(); });
+  root.addEventListener('scroll', clear, { passive: true, capture: true });
   root.addEventListener('click', e => { if (fired) { e.stopPropagation(); e.preventDefault(); fired = false; } }, true);
   root.addEventListener('contextmenu', e => e.preventDefault());
+  root.addEventListener('dragstart', e => e.preventDefault());
 }
 
 /* ================= Actions sur les médias ================= */
@@ -684,7 +723,8 @@ function mediaActions(m, a, onSelect) {
     { label: 'Enregistrer dans la galerie', icon: I.save, run: () => saveMany([m]) },
     { label: 'Déplacer vers un album', icon: I.move, run: () => moveMedia([m.id], a, false) },
     { label: 'Ajouter à un album', icon: I.addTo, run: () => moveMedia([m.id], a, true) },
-    { label: 'Utiliser comme couverture', icon: I.cover, run: () => chooseCover(m, a) }
+    { label: 'Utiliser comme couverture', icon: I.cover, run: () => chooseCover(m, a) },
+    { label: m.ai ? 'Mentionner « Real »' : 'Mentionner « IA »', icon: I.selectI, run: () => { m.ai = !m.ai; save(); refreshAll(); if (V) updateViewerChrome(true); } }
   ];
   if (onSelect) list.push({ label: 'Sélectionner', icon: I.selectI, run: onSelect });
   list.push(null, { label: 'Supprimer', icon: I.trash, danger: true, run: () => deleteMedia(a, [m.id]) });
@@ -700,7 +740,7 @@ async function moveMedia(ids, from, copy) {
   save(); refreshAll();
   toast(`${plural(ids.length, 'élément', 'éléments')} ${copy ? 'ajouté' : 'déplacé'}${ids.length > 1 ? 's' : ''} vers « ${to.name} »`);
   if (V && !copy) {
-    V.items = albumItems(V.a);
+    V.items = viewItems(V.a);
     if (!V.items.length) dismissLayer(closeViewer);
     else { V.idx = Math.min(V.idx, V.items.length - 1); resetZoom(); renderSlides(false); }
   }
@@ -845,7 +885,7 @@ function openViewer(a, idx, cell) {
         <button class="icon-btn glass big" data-act="del" aria-label="Supprimer">${I.trash}</button>
       </div>
     </div>`;
-  V = { el, a, items: albumItems(a), idx, slides: new Map(), s: 1, tx: 0, ty: 0, chrome: true, muted: false };
+  V = { el, a, items: viewItems(a), idx, slides: new Map(), s: 1, tx: 0, ty: 0, chrome: true, muted: false };
   el.classList.remove('hidden', 'chromeless', 'closing');
   el.style.background = '';
   buildFilm();
@@ -999,7 +1039,7 @@ function updateViewerChrome(fromFilm) {
   const d = new Date(m.taken || m.added);
   const day = d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
   V.el.querySelector('.v-date b').textContent = day;
-  V.el.querySelector('.v-date small').textContent = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+  V.el.querySelector('.v-date small').textContent = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) + (m.ai ? ' · IA' : '');
   const fav = V.el.querySelector('[data-act="fav"]');
   fav.innerHTML = m.fav ? I.heartOn : I.heart; fav.classList.toggle('faved', !!m.fav);
   const ctl = V.el.querySelector('.vctl');
@@ -1074,7 +1114,7 @@ function viewerAction(act, btn) {
     deleteMedia(a, [m.id]).then(ok => {
       if (!ok || !V) return;
       const s = V.slides.get(m.id); if (s) { s.remove(); V.slides.delete(m.id); }
-      V.items = albumItems(a);
+      V.items = viewItems(a);
       if (!V.items.length) { dismissLayer(closeViewer); return; }
       V.idx = Math.min(V.idx, V.items.length - 1);
       buildFilm(); resetZoom(); renderSlides(false);

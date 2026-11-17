@@ -379,3 +379,16 @@ button.glass:active { background: linear-gradient(160deg, rgba(255,255,255,.32),
 .prow .pn small { color: var(--fg2); font-size: 14px; }
 .nav [data-act="all"] { margin-right: auto; }
 .nav .right .pill { min-width: 92px; justify-content: center; }
+
+/* ---------- Tri Real / IA ---------- */
+.seg { position: relative; display: grid; grid-template-columns: repeat(3, 1fr); margin: 0 calc(var(--sar) + 16px) 6px calc(var(--sal) + 16px); height: 38px; padding: 3px; border-radius: 19px; }
+.seg button { position: relative; z-index: 1; font-size: 15px; font-weight: 700; color: var(--fg2); transition: color .25s; }
+.seg button.on { color: #fff; }
+.seg-thumb { position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc((100% - 6px) / 3); border-radius: 16px; background: rgba(255,255,255,.2); box-shadow: inset 0 .5px 0 rgba(255,255,255,.35), 0 3px 10px rgba(0,0,0,.25); transition: transform .38s var(--spring); }
+.seg[data-k="real"] .seg-thumb { transform: translateX(100%); }
+.seg[data-k="ai"] .seg-thumb { transform: translateX(200%); }
+.aib { position: absolute; left: 5px; top: 5px; padding: 2px 6px; border-radius: 7px; font-size: 10px; font-weight: 800; letter-spacing: .03em; color: #fff; background: rgba(120, 80, 255, .85); box-shadow: 0 1px 4px rgba(0,0,0,.35); }
+.grid.c5 .aib { font-size: 8px; padding: 1px 4px; left: 3px; top: 3px; }
+.tb-ai { font-size: 15px; font-weight: 800; letter-spacing: .02em; }
+.cell img, .album img, .cover-media { -webkit-user-drag: none; -webkit-touch-callout: none; }
+.grid, .cell { -webkit-touch-callout: none; }
