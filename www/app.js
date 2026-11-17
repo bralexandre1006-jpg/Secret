@@ -920,7 +920,7 @@ function openViewer(a, idx, cell) {
       </div>
     </div>`;
   filmReset();
-  V = { el, a, items: viewItems(a), idx, slides: new Map(), s: 1, tx: 0, ty: 0, chrome: true, muted: false };
+  V = { el, a, openedAt: performance.now(), items: viewItems(a), idx, slides: new Map(), s: 1, tx: 0, ty: 0, chrome: true, muted: false };
   el.classList.remove('hidden', 'chromeless', 'closing');
   el.style.background = '';
   buildFilm();
@@ -1041,7 +1041,7 @@ let filmReset = () => {};
   let user = false, raf = 0, last = -1, still = 0;
   const film = () => el.querySelector('.film');
   const pick = () => {
-    const f = film(); if (!f || !V) return;
+    const f = film(); if (!f || !V || performance.now() - V.openedAt < 600) return;
     const mid = f.scrollLeft + f.clientWidth / 2;
     let best = V.idx, bd = 1e9;
     f.querySelectorAll('.ft').forEach(t => { const d = Math.abs(t.offsetLeft + t.offsetWidth / 2 - mid); if (d < bd) { bd = d; best = +t.dataset.fi; } });

@@ -292,7 +292,7 @@ button.glass:active { background: linear-gradient(160deg, rgba(255,255,255,.32),
 .film { width: 100%; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; touch-action: pan-x; -webkit-mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent); mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent); }
 .film::-webkit-scrollbar { display: none; }
 .film-in { display: flex; align-items: center; gap: 2px; height: 46px; padding: 0 50%; width: max-content; }
-.ft { flex: none; width: 30px; height: 42px; overflow: hidden; border-radius: 3px; background: #1c1c1e; transition: width .25s var(--ease), margin .25s var(--ease), height .25s var(--ease); }
+.ft { flex: none; width: 30px; height: 42px; overflow: hidden; border-radius: 3px; background: #1c1c1e; }
 .ft img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .ft.on { width: 48px; height: 46px; margin: 0 7px; border-radius: 4px; }
 .film.scrubbing .ft.on { width: 30px; height: 42px; margin: 0; }
