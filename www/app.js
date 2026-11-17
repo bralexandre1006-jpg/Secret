@@ -1029,9 +1029,9 @@ function centerFilm(smooth) {
   film.querySelectorAll('.ft.on').forEach(x => x !== t && x.classList.remove('on'));
   t.classList.add('on');
   const target = t.offsetLeft + 24 - film.clientWidth / 2;
-  film._prog = true;
-  film.scrollTo({ left: target, behavior: smooth ? 'smooth' : 'auto' });
-  clearTimeout(film._pt); film._pt = setTimeout(() => { film._prog = false; }, smooth ? 450 : 50);
+  const instant = !smooth || !V.filmReady || Math.abs(film.scrollLeft - target) > film.clientWidth * 1.5;
+  V.filmReady = true;
+  film.scrollTo({ left: target, behavior: instant ? 'auto' : 'smooth' });
 }
 (function filmGestures() {
   const el = $('#viewer');
@@ -1047,17 +1047,15 @@ function centerFilm(smooth) {
       resetZoom(); V.idx = best; renderSlides(false, 0, true);
     }
   };
-  el.addEventListener('touchstart', e => { if (e.target.closest('.film')) { user = true; film().classList.add('scrubbing'); clearTimeout(endT); } }, { passive: true });
-  const release = () => {
-    clearTimeout(endT);
-    endT = setTimeout(() => { if (!V) return; user = false; film().classList.remove('scrubbing'); centerFilm(true); }, 160);
-  };
-  el.addEventListener('touchend', e => { if (user) release(); }, { passive: true });
+  let touching = false;
+  const finish = () => { if (!V) return; user = false; film().classList.remove('scrubbing'); centerFilm(true); };
+  el.addEventListener('touchstart', e => { if (e.target.closest('.film')) { user = true; touching = true; film().classList.add('scrubbing'); clearTimeout(endT); } }, { passive: true });
+  el.addEventListener('touchend', () => { if (!user) return; touching = false; clearTimeout(endT); endT = setTimeout(finish, 180); }, { passive: true });
+  el.addEventListener('touchcancel', () => { if (!user) return; touching = false; clearTimeout(endT); endT = setTimeout(finish, 180); }, { passive: true });
   el.addEventListener('scroll', e => {
-    if (!V || !e.target.classList || !e.target.classList.contains('film')) return;
-    if (e.target._prog && !user) return;
+    if (!V || !user || !e.target.classList || !e.target.classList.contains('film')) return;
     pick();
-    if (user && !e.target.matches(':active')) release();
+    if (!touching) { clearTimeout(endT); endT = setTimeout(finish, 180); }
   }, true);
   el.addEventListener('click', e => {
     const t = e.target.closest('.ft'); if (!t || !V) return;
