@@ -13,10 +13,11 @@
 
 ## Architecture
 - `www/index.html` / `styles.css` / `app.js` : UI style iOS liquid glass (sombre). Police : Inter variable intégrée (`www/fonts/`, licence OFL), graisses renforcées façon iOS (SF Pro non redistribuable). `www/capacitor.js` = copie de `@capacitor/core` (régénérée par `npm run sync`).
-- Écrans : verrou (empreinte + PIN, animation cadenas ≤ 2 s) → accueil (2 catégories renommables, couverture photo/vidéo) → catégorie (albums) → album (grille façon Photos, pincer = 2/3/5 colonnes, sélection) → visionneuse (swipe, zoom, glisser vers le bas, vidéos en boucle, enregistrer dans la galerie, définir couverture).
+- Écrans : verrou (empreinte + PIN, animation cadenas ≤ 2 s) → accueil (2 catégories renommables, couverture photo/vidéo) → catégorie (albums) → album (grille façon Photos, pincer = 2/3/5 colonnes, sélection) → visionneuse façon Photos iOS (ouverture/fermeture zoom depuis la miniature, pastille date, pellicule de miniatures, bouton Télécharger direct, favori, infos, couverture, swipe, zoom, glisser vers le bas, vidéos en boucle).
+- Pas de notifications toast : seulement un indicateur de progression centré (`#hud`) pendant import/export/téléchargement multiple.
 - Appui long (style iOS) : menu contextuel avec aperçu sur catégories, albums et photos (`contextMenu`) ; déplacer/ajouter vers un album (`moveMedia`, `pickAlbum`) ; sélection multiple par glissement + « Tout sélectionner » ; déplacer un album vers l'autre catégorie.
 - `android/app/src/main/java/com/bralexandre/secret/VaultPlugin.java` : `pickMedia` (copie dans le stockage privé + miniature), `saveToGallery` (MediaStore → Pictures/Secret ou Movies/Secret), `deleteFiles`, `importZip` (UTF-8 puis CP437 ; dossier du ZIP → album), `exportZip` (→ Téléchargements/Secret, sans compression), `writeDb`/`readDb`, `biometricAvailable`/`authenticate`.
-- `MainActivity` : enregistre le plugin, `FLAG_SECURE` (contenu masqué dans les apps récentes, captures bloquées).
+- `MainActivity` : enregistre le plugin. Captures d'écran autorisées (pas de `FLAG_SECURE`, demande utilisateur).
 - Bouton retour Android géré via `history` (`openLayer` / `dismissLayer` dans `app.js`).
 
 ## Règles critiques (perte de données / mises à jour)

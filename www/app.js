@@ -37,6 +37,9 @@ const I = {
   pencil: '<svg viewBox="0 0 24 24"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>',
   phone: '<svg viewBox="0 0 24 24"><rect x="6" y="2.5" width="12" height="19" rx="3"/><path d="M10.5 18.5h3"/></svg>',
   zip: '<svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="3"/><path d="M12 3v2m0 2v2m0 2v2"/><rect x="10.5" y="13" width="3" height="4" rx="1"/></svg>',
+  heart: '<svg viewBox="0 0 24 24"><path d="M12 20.5s-7.5-4.6-7.5-10.3A4.2 4.2 0 0 1 12 7.6a4.2 4.2 0 0 1 7.5 2.6c0 5.7-7.5 10.3-7.5 10.3z"/></svg>',
+  heartOn: '<svg viewBox="0 0 24 24" style="fill:#fff"><path d="M12 20.5s-7.5-4.6-7.5-10.3A4.2 4.2 0 0 1 12 7.6a4.2 4.2 0 0 1 7.5 2.6c0 5.7-7.5 10.3-7.5 10.3z"/></svg>',
+  info: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5"/><circle cx="12" cy="7.8" r=".6" style="fill:#fff"/></svg>',
   auto: '<svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 0 1 14-5.3M20 12a8 8 0 0 1-14 5.3"/><path d="M18 3v4h-4M6 21v-4h4"/></svg>'
 };
 
@@ -137,10 +140,10 @@ addEventListener('popstate', () => {
 });
 
 /* ================= Toast, feuilles, dialogues ================= */
-let toastT = 0;
-function toast(msg, ms = 1900) {
-  const t = $('#toast'); t.textContent = msg; t.classList.add('show');
-  clearTimeout(toastT); if (ms) toastT = setTimeout(() => t.classList.remove('show'), ms);
+function toast(msg, ms) {
+  const t = $('#hud');
+  if (ms === 0) { t.querySelector('span').textContent = msg; t.classList.add('show'); }
+  else t.classList.remove('show');
 }
 
 function sheet({ title, msg, opts }) {
@@ -372,7 +375,8 @@ function openAlbum(a) {
     <h1 class="big-title"></h1><p class="sub"></p><div class="grid"></div><div class="grid-foot"></div></div>
     <button class="fab glass" data-act="add" aria-label="Importer">${I.plus}</button>
     <div class="toolbar glass hidden">
-      <button class="tb-btn" data-act="s-save">${I.save}<span>Enregistrer</span></button>
+      <button class="tb-btn" data-act="s-save" aria-label="Télécharger">${I.save}</button>
+      <button class="tb-btn" data-act="s-zip" aria-label="Exporter en ZIP">${I.zip}</button>
       <button class="tb-btn" data-act="s-move" aria-label="Déplacer">${I.move}</button>
       <button class="tb-btn" data-act="s-add" aria-label="Ajouter à un album">${I.addTo}</button>
       <button class="tb-btn" data-act="s-cover" aria-label="Couverture">${I.cover}</button>
@@ -390,7 +394,7 @@ function openAlbum(a) {
     grid.className = `grid c${db.settings.cols}${selecting ? ' selecting' : ''}`;
     grid.innerHTML = items.map((m, i) => `<div class="cell${sel.has(m.id) ? ' sel' : ''}" data-i="${i}">
       ${m.thumb ? `<img src="${fileSrc(m.thumb)}" loading="lazy" decoding="async" alt="">` : `<div class="cover-empty ph-${i % 4}">${I.photos}</div>`}
-      ${m.type === 'video' ? `<span class="dur">${fmtDur(m.duration)}</span>` : ''}<span class="check">${I.check}</span></div>`).join('');
+      ${m.type === 'video' ? `<span class="dur">${fmtDur(m.duration)}</span>` : ''}${m.fav ? `<span class="favb">${I.heartOn}</span>` : ''}<span class="check">${I.check}</span></div>`).join('');
     el.querySelector('.grid-foot').textContent = items.length ? countLabel(items) : '';
     if (!items.length) grid.innerHTML = `<div class="empty" style="grid-column:1/-1">${I.photos}<b>Album vide</b>Touchez + pour importer des photos et des vidéos.</div>`;
     updateSelUI();
@@ -435,14 +439,8 @@ function openAlbum(a) {
       if (i === 0) importInto(a); else if (i === 1) importZip(catOf(a), a);
       return;
     }
-    if (act === 's-save') {
-      const list = selected();
-      const i = await sheet({ title: plural(list.length, 'élément', 'éléments'), opts: [{ label: 'Enregistrer dans la galerie' }, { label: 'Exporter en ZIP' }] });
-      if (i == null) return;
-      setSelecting(false);
-      if (i === 0) saveMany(list); else exportZip(`${a.name} (${list.length})`, list.map(m => zipEntry(m)));
-      return;
-    }
+    if (act === 's-save') { flashSave(e.target.closest('[data-act]'), selected()); return; }
+    if (act === 's-zip') { const list = selected(); setSelecting(false); exportZip(`${a.name} (${list.length})`, list.map(m => zipEntry(m))); return; }
     if (act === 's-cover') { const [id] = sel; await chooseCover(db.media[id], a); setSelecting(false); return; }
     if (act === 's-del') {
       const ids = [...sel];
@@ -452,7 +450,7 @@ function openAlbum(a) {
     const cell = e.target.closest('.cell'); if (!cell) return;
     const m = items[+cell.dataset.i];
     if (selecting) { sel.has(m.id) ? sel.delete(m.id) : sel.add(m.id); cell.classList.toggle('sel', sel.has(m.id)); updateSelUI(); }
-    else openViewer(a, +cell.dataset.i);
+    else openViewer(a, +cell.dataset.i, cell);
   });
   longPress(grid, '.cell', cell => {
     if (selecting) return;
@@ -600,15 +598,16 @@ async function exportZip(name, entries) {
 }
 
 async function saveMany(list) {
-  if (!list.length) return;
+  if (!list.length) return 0;
   busyExternal = true;
   let ok = 0;
   for (const m of list) {
-    toast(list.length > 1 ? `Enregistrement ${ok + 1}/${list.length}…` : 'Enregistrement…', 0);
+    if (list.length > 1) toast(`Téléchargement ${ok + 1}/${list.length}…`, 0);
     try { await Vault.saveToGallery({ path: m.path, mime: m.mime }); ok++; } catch (e) {}
   }
   busyExternal = false;
-  toast(ok === list.length ? (ok > 1 ? `${ok} éléments enregistrés dans la galerie` : 'Enregistré dans la galerie') : `Échec pour ${list.length - ok} élément(s)`);
+  toast(null);
+  return ok;
 }
 
 async function deleteMedia(a, ids) {
@@ -765,13 +764,18 @@ function contextMenu(src, { kind, media, title, actions, open }) {
   };
 }
 
-/* ================= Visionneuse ================= */
-let V = null;
-function openViewer(a, idx) {
+/* ================= Visionneuse (façon Photos iOS) ================= */
+let V = null, closeAnimT = 0;
+const isVid = e => e && e.tagName === 'VIDEO';
+function openViewer(a, idx, cell) {
   const el = $('#viewer');
-  el.innerHTML = `<div class="track"></div>
-    <div class="v-top"><button class="icon-btn glass" data-act="close" aria-label="Fermer">${I.back}</button>
-      <div class="meta"></div><button class="icon-btn glass" data-act="more" aria-label="Plus">${I.more}</button></div>
+  clearTimeout(closeAnimT);
+  el.innerHTML = `<div class="v-bg"></div><div class="track"></div>
+    <div class="v-top">
+      <button class="icon-btn glass" data-act="close" aria-label="Retour">${I.back}</button>
+      <div class="v-date glass"><b></b><small></small></div>
+      <button class="icon-btn glass" data-act="more" aria-label="Plus">${I.more}</button>
+    </div>
     <div class="v-bottom">
       <div class="vctl glass hidden">
         <button class="tb-btn" data-act="play" aria-label="Lecture">${I.pause}</button>
@@ -781,25 +785,76 @@ function openViewer(a, idx) {
         <button class="tb-btn" data-act="mute" aria-label="Son">${I.sound}</button>
         <button class="tb-btn" data-act="loop" aria-label="Lecture en boucle">${I.loop}</button>
       </div>
-      <div class="toolbar glass v-toolbar">
-        <button class="tb-btn" data-act="save">${I.save}<span>Enregistrer</span></button>
-        <button class="tb-btn" data-act="cover" aria-label="Couverture">${I.cover}</button>
-        <button class="tb-btn danger" data-act="del" aria-label="Supprimer">${I.trash}</button>
+      <div class="film"><div class="film-in"></div></div>
+      <div class="v-bar">
+        <button class="icon-btn glass big" data-act="save" aria-label="Télécharger">${I.save}</button>
+        <div class="v-mid glass">
+          <button class="tb-btn" data-act="fav" aria-label="Favori">${I.heart}</button>
+          <button class="tb-btn" data-act="info" aria-label="Infos">${I.info}</button>
+          <button class="tb-btn" data-act="cover" aria-label="Couverture">${I.cover}</button>
+        </div>
+        <button class="icon-btn glass big" data-act="del" aria-label="Supprimer">${I.trash}</button>
       </div>
     </div>`;
   V = { el, a, items: albumItems(a), idx, slides: new Map(), s: 1, tx: 0, ty: 0, chrome: true, muted: false };
-  el.classList.remove('hidden', 'chromeless');
-  el.classList.add('opening'); setTimeout(() => el.classList.remove('opening'), 320);
+  el.classList.remove('hidden', 'chromeless', 'closing');
   el.style.background = '';
+  buildFilm();
   renderSlides(false);
   openLayer(closeViewer);
+  heroOpen(cell);
+}
+
+function fitRect(box, nw, nh) {
+  const f = Math.min(box.width / nw, box.height / nh), w = nw * f, h = nh * f;
+  return { left: box.left + (box.width - w) / 2, top: box.top + (box.height - h) / 2, width: w, height: h };
+}
+function ghost(src, r) {
+  const g = document.createElement('img');
+  g.className = 'v-ghost'; g.src = src;
+  Object.assign(g.style, { left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: r.height + 'px' });
+  return g;
+}
+function heroOpen(cell) {
+  const img = cell && cell.querySelector('img');
+  const el = V.el;
+  if (!img || !img.naturalWidth) { el.classList.add('opening'); setTimeout(() => el.classList.remove('opening'), 320); return; }
+  const from = cell.getBoundingClientRect();
+  const to = fitRect({ left: 0, top: 0, width: el.clientWidth, height: el.clientHeight }, img.naturalWidth, img.naturalHeight);
+  const g = ghost(img.src, from);
+  el.appendChild(g); el.classList.add('hero');
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    el.classList.add('hero-in');
+    Object.assign(g.style, { left: to.left + 'px', top: to.top + 'px', width: to.width + 'px', height: to.height + 'px', borderRadius: '0' });
+  }));
+  setTimeout(() => { el.classList.remove('hero', 'hero-in'); g.remove(); }, 420);
 }
 function closeViewer() {
   if (!V) return;
-  V.slides.forEach(s => { const v = s.querySelector('video'); if (v) { v.pause(); v.removeAttribute('src'); v.load(); } });
-  V.el.classList.add('hidden'); V.el.innerHTML = '';
+  const v = V; V = null;
+  const el = v.el, m = v.items[v.idx], slide = v.slides.get(m && m.id);
+  const media = slide && slide.querySelector('img,video');
+  const grid = topScreen().querySelector('.grid');
+  const cell = grid && grid.querySelector(`.cell[data-i="${v.idx}"]`);
+  const cimg = cell && cell.querySelector('img');
   Bars && Bars.show().catch(() => {});
-  V = null;
+  const cleanup = () => {
+    v.slides.forEach(s => { const x = s.querySelector('video'); if (x) { x.pause(); x.removeAttribute('src'); x.load(); } });
+    el.classList.add('hidden'); el.classList.remove('closing', 'chromeless'); el.innerHTML = ''; el.style.background = '';
+  };
+  const nw = media && (media.naturalWidth || media.videoWidth), nh = media && (media.naturalHeight || media.videoHeight);
+  if (!cimg || !nw) { el.classList.add('closing'); closeAnimT = setTimeout(cleanup, 260); return; }
+  cell.scrollIntoView({ block: 'nearest' });
+  const from = fitRect(slide.getBoundingClientRect(), nw, nh), to = cell.getBoundingClientRect();
+  const g = ghost(cimg.src, from);
+  if (!isVid(media)) g.src = media.currentSrc || media.src;
+  el.appendChild(g);
+  el.classList.add('closing', 'hero');
+  slide.style.visibility = 'hidden';
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    Object.assign(g.style, { left: to.left + 'px', top: to.top + 'px', width: to.width + 'px', height: to.height + 'px' });
+  }));
+  closeAnimT = setTimeout(cleanup, 400);
 }
 const curMedia = () => V && V.items[V.idx];
 const curSlide = () => V && V.slides.get(V.items[V.idx]?.id);
@@ -815,7 +870,7 @@ function makeSlide(m) {
   }
   return s;
 }
-function renderSlides(anim, dx = 0) {
+function renderSlides(anim, dx = 0, fromFilm) {
   const keep = new Set();
   const track = V.el.querySelector('.track');
   for (let i = V.idx - 1; i <= V.idx + 1; i++) {
@@ -824,7 +879,7 @@ function renderSlides(anim, dx = 0) {
     let s = V.slides.get(m.id);
     if (!s) { s = makeSlide(m); V.slides.set(m.id, s); track.appendChild(s); }
     s.classList.toggle('anim', !!anim);
-    s.style.transform = `translateX(calc(${(i - V.idx) * 100}% + ${(i - V.idx) * 12}px + ${dx}px))`;
+    s.style.transform = `translateX(calc(${(i - V.idx) * 100}% + ${(i - V.idx) * 14}px + ${dx}px))`;
   }
   V.slides.forEach((s, id) => {
     if (keep.has(id)) return;
@@ -832,22 +887,76 @@ function renderSlides(anim, dx = 0) {
     s.remove(); V.slides.delete(id);
   });
   V.slides.forEach((s, id) => { const v = s.querySelector('video'); if (v && id !== curMedia().id) v.pause(); });
-  updateViewerChrome();
+  if (!dx) updateViewerChrome(fromFilm);
 }
-function updateViewerChrome() {
+
+/* Pellicule de miniatures */
+function buildFilm() {
+  const inner = V.el.querySelector('.film-in');
+  inner.innerHTML = V.items.map((m, i) => `<button class="ft" data-fi="${i}">${m.thumb ? `<img src="${fileSrc(m.thumb)}" loading="lazy" decoding="async" alt="">` : ''}</button>`).join('');
+  V.el.querySelector('.film').classList.toggle('hidden', V.items.length < 2);
+}
+function centerFilm(smooth) {
+  const film = V.el.querySelector('.film'), t = film.querySelector(`[data-fi="${V.idx}"]`); if (!t) return;
+  film.querySelectorAll('.ft.on').forEach(x => x !== t && x.classList.remove('on'));
+  t.classList.add('on');
+  const target = t.offsetLeft + 24 - film.clientWidth / 2;
+  film._prog = true;
+  film.scrollTo({ left: target, behavior: smooth ? 'smooth' : 'auto' });
+  clearTimeout(film._pt); film._pt = setTimeout(() => { film._prog = false; }, smooth ? 450 : 50);
+}
+(function filmGestures() {
+  const el = $('#viewer');
+  let user = false, endT = 0;
+  const film = () => el.querySelector('.film');
+  const pick = () => {
+    const f = film(); if (!f || !V) return;
+    const mid = f.scrollLeft + f.clientWidth / 2;
+    let best = V.idx, bd = 1e9;
+    f.querySelectorAll('.ft').forEach(t => { const d = Math.abs(t.offsetLeft + t.offsetWidth / 2 - mid); if (d < bd) { bd = d; best = +t.dataset.fi; } });
+    if (best !== V.idx) {
+      const v = curEl(); if (isVid(v)) v.pause();
+      resetZoom(); V.idx = best; renderSlides(false, 0, true);
+    }
+  };
+  el.addEventListener('touchstart', e => { if (e.target.closest('.film')) { user = true; film().classList.add('scrubbing'); clearTimeout(endT); } }, { passive: true });
+  const release = () => {
+    clearTimeout(endT);
+    endT = setTimeout(() => { if (!V) return; user = false; film().classList.remove('scrubbing'); centerFilm(true); }, 160);
+  };
+  el.addEventListener('touchend', e => { if (user) release(); }, { passive: true });
+  el.addEventListener('scroll', e => {
+    if (!V || !e.target.classList || !e.target.classList.contains('film')) return;
+    if (e.target._prog && !user) return;
+    pick();
+    if (user && !e.target.matches(':active')) release();
+  }, true);
+  el.addEventListener('click', e => {
+    const t = e.target.closest('.ft'); if (!t || !V) return;
+    const i = +t.dataset.fi; if (i === V.idx) return;
+    const v = curEl(); if (isVid(v)) v.pause();
+    resetZoom(); V.idx = i; renderSlides(false);
+  });
+})();
+
+function updateViewerChrome(fromFilm) {
   const m = curMedia(); if (!m) return;
   const d = new Date(m.taken || m.added);
-  const df = d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
-  const tf = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-  V.el.querySelector('.meta').innerHTML = `${esc(df)}<small>${esc(tf)} · ${V.idx + 1} sur ${V.items.length}</small>`;
+  const day = d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+  V.el.querySelector('.v-date b').textContent = day;
+  V.el.querySelector('.v-date small').textContent = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+  const fav = V.el.querySelector('[data-act="fav"]');
+  fav.innerHTML = m.fav ? I.heartOn : I.heart; fav.classList.toggle('faved', !!m.fav);
   const ctl = V.el.querySelector('.vctl');
   ctl.classList.toggle('hidden', m.type !== 'video');
   V.el.querySelector('[data-act="loop"]').classList.toggle('on', db.settings.loop);
   V.el.querySelector('[data-act="mute"]').innerHTML = V.muted ? I.mute : I.sound;
+  if (!fromFilm) centerFilm(true);
+  else { const f = V.el.querySelector('.film'); f.querySelectorAll('.ft.on').forEach(x => x.classList.remove('on')); f.querySelector(`[data-fi="${V.idx}"]`)?.classList.add('on'); }
   if (m.type === 'video') bindVideo();
 }
 function bindVideo() {
-  const v = curEl(); if (!v || v.tagName !== 'VIDEO') return;
+  const v = curEl(); if (!isVid(v)) return;
   v.loop = db.settings.loop; v.muted = V.muted;
   if (v._bound) { v.play().catch(() => {}); return; }
   v._bound = true;
@@ -863,24 +972,47 @@ function bindVideo() {
     if (!v.paused) requestAnimationFrame(tick);
   };
   v._tick = tick;
-  ['play', 'pause', 'loadedmetadata', 'seeked', 'timeupdate'].forEach(ev => v.addEventListener(ev, tick));
-  v.addEventListener('ended', tick);
+  ['play', 'pause', 'loadedmetadata', 'seeked', 'timeupdate', 'ended'].forEach(ev => v.addEventListener(ev, tick));
   v.play().catch(() => tick());
 }
 
-function viewerAction(act) {
+async function flashSave(btn, list) {
+  if (!btn || btn.classList.contains('busy')) return;
+  btn.classList.remove('done', 'fail'); btn.classList.add('busy');
+  const ok = await saveMany(list);
+  btn.classList.remove('busy'); btn.classList.add(ok === list.length ? 'done' : 'fail');
+  navigator.vibrate && navigator.vibrate(ok === list.length ? 15 : [30, 40, 30]);
+  setTimeout(() => btn.classList.remove('done', 'fail'), 1400);
+}
+
+function viewerAction(act, btn) {
   const m = curMedia(); if (!m) return;
   const v = curEl();
   if (act === 'close') dismissLayer(closeViewer);
-  else if (act === 'play' && v && v.tagName === 'VIDEO') { v.paused ? v.play().catch(() => {}) : v.pause(); }
-  else if (act === 'mute') { V.muted = !V.muted; if (v && v.tagName === 'VIDEO') v.muted = V.muted; updateViewerChrome(); }
+  else if (act === 'play' && isVid(v)) { v.paused ? v.play().catch(() => {}) : v.pause(); }
+  else if (act === 'mute') { V.muted = !V.muted; if (isVid(v)) v.muted = V.muted; updateViewerChrome(true); }
   else if (act === 'loop') {
     db.settings.loop = !db.settings.loop; save();
-    if (v && v.tagName === 'VIDEO') v.loop = db.settings.loop;
-    updateViewerChrome(); toast(db.settings.loop ? 'Lecture en boucle activée' : 'Lecture en boucle désactivée');
+    if (isVid(v)) v.loop = db.settings.loop;
+    updateViewerChrome(true);
   }
-  else if (act === 'more') runSheet('', mediaActions(m, V.a).filter(x => x && x.icon !== I.save && x.icon !== I.trash));
-  else if (act === 'save') saveMany([m]);
+  else if (act === 'fav') {
+    m.fav = !m.fav; save(); updateViewerChrome(true);
+    btn.classList.remove('pop'); void btn.offsetWidth; btn.classList.add('pop');
+    refreshAll();
+  }
+  else if (act === 'info') {
+    const d = new Date(m.taken || m.added);
+    const lines = [
+      d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) + ' · ' + d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
+      m.name || '',
+      m.type === 'video' ? `Vidéo · ${fmtDur(m.duration)}` : 'Photo',
+      `Album : ${V.a.name}`
+    ].filter(Boolean);
+    sheet({ title: 'Informations', msg: lines.join('\n'), opts: [] });
+  }
+  else if (act === 'more') runSheet('', mediaActions(m, V.a).filter(x => x && x.icon !== I.save && x.icon !== I.trash && x.icon !== I.cover));
+  else if (act === 'save') flashSave(btn, [m]);
   else if (act === 'cover') chooseCover(m, V.a);
   else if (act === 'del') {
     const a = V.a;
@@ -890,7 +1022,7 @@ function viewerAction(act) {
       V.items = albumItems(a);
       if (!V.items.length) { dismissLayer(closeViewer); return; }
       V.idx = Math.min(V.idx, V.items.length - 1);
-      resetZoom(); renderSlides(false);
+      buildFilm(); resetZoom(); renderSlides(false);
     });
   }
 }
@@ -934,7 +1066,7 @@ function go(dir) {
   const P = new Map();
   let mode = null, sx = 0, sy = 0, st = 0, lx = 0, ly = 0, lt = 0, vx = 0, vy = 0;
   let pinch = null, lastTap = 0, tapTimer = 0, moved = false;
-  el.addEventListener('click', e => { const b = e.target.closest('[data-act]'); if (b && V) viewerAction(b.dataset.act); });
+  el.addEventListener('click', e => { const b = e.target.closest('[data-act]'); if (b && V) viewerAction(b.dataset.act, b); });
   el.addEventListener('pointerdown', e => {
     if (!V || e.target.closest('.v-top,.v-bottom')) return;
     el.setPointerCapture(e.pointerId);
@@ -974,7 +1106,7 @@ function go(dir) {
       const s = curSlide(); if (!s) return;
       const k = clamp(1 - dy / 900, 0.7, 1);
       s.style.transform = `translate(${dx}px, ${dy}px) scale(${k})`;
-      el.style.background = `rgba(0,0,0,${clamp(1 - dy / 400, 0, 1)})`;
+      el.querySelector('.v-bg').style.opacity = clamp(1 - dy / 400, 0, 1);
       if (V.chrome) el.classList.add('chromeless');
     }
   });
@@ -995,10 +1127,10 @@ function go(dir) {
       if (dx < -w * 0.22 || vx < -0.45) go(1); else if (dx > w * 0.22 || vx > 0.45) go(-1); else renderSlides(true);
     } else if (mode === 'dismiss') {
       const s = curSlide();
-      if (dy > 130 || vy > 0.6) { s.style.transition = 'transform .25s, opacity .25s'; s.style.opacity = '0'; dismissLayer(closeViewer); }
+      if (dy > 110 || vy > 0.5) dismissLayer(closeViewer);
       else {
         s.style.transition = 'transform .3s cubic-bezier(.32,.72,0,1)'; s.style.transform = 'translateX(0)';
-        el.style.background = ''; el.classList.toggle('chromeless', !V.chrome);
+        el.querySelector('.v-bg').style.opacity = ''; el.classList.toggle('chromeless', !V.chrome);
         setTimeout(() => { if (s) s.style.transition = ''; }, 320);
       }
     } else if (!moved && e.type === 'pointerup') {
