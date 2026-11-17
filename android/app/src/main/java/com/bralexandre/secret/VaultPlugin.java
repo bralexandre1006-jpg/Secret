@@ -250,6 +250,10 @@ public class VaultPlugin extends Plugin {
 
         File thumb = makeThumb(out, isVideo, id);
         if (thumb != null) item.put("thumb", thumb.getAbsolutePath());
+        if (!isVideo) {
+            File prev = makePreview(out, id);
+            if (prev != null) item.put("preview", prev.getAbsolutePath());
+        }
 
         if (isVideo) {
             try {
@@ -453,6 +457,66 @@ public class VaultPlugin extends Plugin {
             if (c != null && c.moveToFirst() && !c.isNull(0)) return c.getString(0);
         } catch (Exception ignored) {}
         return "";
+    }
+
+    // Version écran (2560 px max) : affichage fluide dans la visionneuse
+    private File makePreview(File src, String id) {
+        try {
+            android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options();
+            o.inJustDecodeBounds = true;
+            android.graphics.BitmapFactory.decodeFile(src.getAbsolutePath(), o);
+            int max = Math.max(o.outWidth, o.outHeight);
+            if (max <= 0) return null;
+            File d = new File(getContext().getFilesDir(), "vault/previews");
+            d.mkdirs();
+            File t = new File(d, id + ".jpg");
+            if (t.exists()) return t;
+            if (max <= 2560 && !"image/heic".equals(o.outMimeType) && !"image/heif".equals(o.outMimeType)) return null;
+            int sample = 1;
+            while (max / (sample * 2) >= 2560) sample *= 2;
+            android.graphics.BitmapFactory.Options o2 = new android.graphics.BitmapFactory.Options();
+            o2.inSampleSize = sample;
+            Bitmap bmp = android.graphics.BitmapFactory.decodeFile(src.getAbsolutePath(), o2);
+            if (bmp == null) return null;
+            float scale = 2560f / Math.max(bmp.getWidth(), bmp.getHeight());
+            int rot = 0;
+            try {
+                androidx.exifinterface.media.ExifInterface ex = new androidx.exifinterface.media.ExifInterface(src.getAbsolutePath());
+                rot = ex.getRotationDegrees();
+            } catch (Exception ignored) {}
+            android.graphics.Matrix m = new android.graphics.Matrix();
+            if (scale < 1f) m.postScale(scale, scale);
+            if (rot != 0) m.postRotate(rot);
+            Bitmap out = Bitmap.createBitmap(bmp, 0, 0, bmp.getWidth(), bmp.getHeight(), m, true);
+            try (OutputStream os = new FileOutputStream(t)) {
+                out.compress(Bitmap.CompressFormat.JPEG, 88, os);
+            }
+            if (out != bmp) out.recycle();
+            bmp.recycle();
+            return t;
+        } catch (Throwable e) {
+            return null;
+        }
+    }
+
+    @PluginMethod
+    public void ensurePreviews(PluginCall call) {
+        JSArray arr = call.getArray("items", new JSArray());
+        io.execute(() -> {
+            JSObject res = new JSObject();
+            for (int i = 0; i < arr.length(); i++) {
+                try {
+                    org.json.JSONObject o = arr.getJSONObject(i);
+                    File src = new File(o.getString("path"));
+                    if (!src.exists()) continue;
+                    File p = makePreview(src, o.getString("id"));
+                    res.put(o.getString("id"), p != null ? p.getAbsolutePath() : "");
+                } catch (Exception ignored) {}
+            }
+            JSObject r = new JSObject();
+            r.put("previews", res);
+            call.resolve(r);
+        });
     }
 
     private File makeThumb(File src, boolean isVideo, String id) {

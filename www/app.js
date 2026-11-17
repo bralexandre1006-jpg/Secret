@@ -63,6 +63,7 @@ const WebVault = {
   async readDb() { return {}; },
   async importZip() { throw new Error('android'); },
   async canDeleteFromGallery() { return { available: false }; },
+  async ensurePreviews() { return { previews: {} }; },
   async deleteFromGallery() { return { deleted: false }; },
   async exportZip() { throw new Error('android'); },
   async biometricAvailable() { return { available: false }; },
@@ -113,7 +114,7 @@ function gc(ids) {
   for (const id of ids) {
     const m = db.media[id];
     if (!m || isReferenced(id)) continue;
-    paths.push(m.path); if (m.thumb) paths.push(m.thumb);
+    paths.push(m.path); if (m.thumb) paths.push(m.thumb); if (m.preview) paths.push(m.preview);
     delete db.media[id];
   }
   if (paths.length) Vault.deleteFiles({ paths }).catch(() => {});
@@ -221,16 +222,26 @@ function countLabel(items) {
 const fmtDur = s => { s = Math.max(0, Math.round(s || 0)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 
 /* ================= Accueil ================= */
+let homeKey = '';
 function renderHome() {
   phN = 0;
   const box = $('#cats');
+  const key = db.cats.map(c => [c.name, c.cover, catAlbums(c).map(a => a.id + ':' + a.items.length + ':' + (albumCover(a) || {}).id).join(','), (catCover(c) || {}).id].join('|')).join('/');
+  if (key === homeKey) return;
+  homeKey = key;
   box.innerHTML = db.cats.map((c, i) => {
     const n = catAlbums(c).length;
     return `<div class="cat pressable" data-i="${i}">${coverHTML(catCover(c), true)}<div class="shade"></div>
       <button class="icon-btn glass more" data-more="${i}" aria-label="Options">${I.more}</button>
-      <div class="label"><h2>${esc(c.name)}</h2><p>${plural(n, 'album', 'albums')}</p></div>
+      <div class="label">${stackHTML(c)}<h2>${esc(c.name)}</h2><p>${n ? `${plural(n, 'album', 'albums')} · ${plural(catAlbums(c).reduce((t, a) => t + a.items.length, 0), 'élément', 'éléments')}` : 'Aucun album'}</p></div>
       <span class="icon-btn glass go">${I.chev}</span></div>`;
   }).join('');
+  const total = Object.keys(db.media).length, nAl = Object.keys(db.albums).length;
+  $('#homeSub').textContent = total ? `${plural(total, 'élément', 'éléments')} · ${plural(nAl, 'album', 'albums')}` : 'Votre album privé';
+}
+function stackHTML(c) {
+  const th = catAlbums(c).map(albumCover).filter(m => m && m.thumb).slice(0, 3);
+  return th.length ? `<div class="stack">${th.map(m => `<span><img src="${fileSrc(m.thumb)}" alt=""></span>`).join('')}</div>` : '';
 }
 $('#cats').addEventListener('click', e => {
   const more = e.target.closest('[data-more]');
@@ -285,10 +296,12 @@ function pushScreen(el) {
   $('#app').appendChild(el);
   el.classList.add('push-in');
   prev.classList.remove('returning'); prev.classList.add('under');
+  setTimeout(() => prev.querySelectorAll('video').forEach(v => v.pause()), 480);
   stack.push(el);
   const close = () => {
     stack.splice(stack.indexOf(el), 1);
     const p = topScreen(); p.classList.remove('under'); p.classList.add('returning');
+    p.querySelectorAll('video.cover-media').forEach(v => v.play().catch(() => {}));
     el.classList.remove('push-in'); el.classList.add('push-out');
     el.querySelectorAll('video').forEach(v => v.pause());
     setTimeout(() => el.remove(), 430);
@@ -394,11 +407,21 @@ function openAlbum(a) {
     el.querySelector('.big-title').textContent = a.name;
     el.querySelector('.sub').textContent = countLabel(items);
     grid.className = `grid c${db.settings.cols}${selecting ? ' selecting' : ''}`;
-    grid.innerHTML = items.map((m, i) => `<div class="cell${sel.has(m.id) ? ' sel' : ''}" data-i="${i}">
+    const key = items.map(m => m.id + (m.fav ? '*' : '')).join(',');
+    if (key !== el._key) {
+      el._key = key;
+      let month = '';
+      grid.innerHTML = items.map((m, i) => {
+        const mo = new Date(sortKey(m) || Date.now()).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+        const head = mo !== month ? `<div class="mhead">${esc(mo)}</div>` : '';
+        month = mo;
+        return `${head}<div class="cell${sel.has(m.id) ? ' sel' : ''}" data-i="${i}">
       ${m.thumb ? `<img src="${fileSrc(m.thumb)}" loading="lazy" decoding="async" alt="">` : `<div class="cover-empty ph-${i % 4}">${I.photos}</div>`}
-      ${m.type === 'video' ? `<span class="dur">${fmtDur(m.duration)}</span>` : ''}${m.fav ? `<span class="favb">${I.heartOn}</span>` : ''}<span class="check">${I.check}</span></div>`).join('');
+      ${m.type === 'video' ? `<span class="dur">${fmtDur(m.duration)}</span>` : ''}${m.fav ? `<span class="favb">${I.heartOn}</span>` : ''}<span class="check">${I.check}</span></div>`;
+      }).join('');
+      if (!items.length) grid.innerHTML = `<div class="empty" style="grid-column:1/-1">${I.photos}<b>Album vide</b>Touchez + pour importer des photos et des vidéos.</div>`;
+    }
     el.querySelector('.grid-foot').textContent = items.length ? countLabel(items) : '';
-    if (!items.length) grid.innerHTML = `<div class="empty" style="grid-column:1/-1">${I.photos}<b>Album vide</b>Touchez + pour importer des photos et des vidéos.</div>`;
     updateSelUI();
   };
   function updateSelUI() {
@@ -846,7 +869,9 @@ function heroOpen(cell) {
     el.classList.add('hero-in');
     Object.assign(g.style, { left: to.left + 'px', top: to.top + 'px', width: to.width + 'px', height: to.height + 'px', borderRadius: '0' });
   }));
-  setTimeout(() => { el.classList.remove('hero', 'hero-in'); g.remove(); }, 420);
+  const slideImg = curEl();
+  const ready = slideImg && slideImg.tagName === 'IMG' && slideImg.decode ? Promise.race([slideImg.decode().catch(() => {}), sleep(700)]) : Promise.resolve();
+  Promise.all([sleep(400), ready]).then(() => { el.classList.remove('hero', 'hero-in'); requestAnimationFrame(() => g.remove()); });
 }
 function closeViewer() {
   if (!V) return;
@@ -885,7 +910,7 @@ function makeSlide(m) {
   if (m.type === 'video') {
     s.innerHTML = `<video src="${fileSrc(m.path)}" ${m.thumb ? `poster="${fileSrc(m.thumb)}"` : ''} playsinline preload="metadata"></video>`;
   } else {
-    s.innerHTML = `<img src="${fileSrc(m.path)}" decoding="async" alt="" draggable="false">`;
+    s.innerHTML = `<img src="${fileSrc(m.preview || m.path)}" decoding="async" alt="" draggable="false">`;
   }
   return s;
 }
@@ -905,7 +930,11 @@ function renderSlides(anim, dx = 0, fromFilm) {
     const v = s.querySelector('video'); if (v) { v.pause(); v.removeAttribute('src'); v.load(); }
     s.remove(); V.slides.delete(id);
   });
-  V.slides.forEach((s, id) => { const v = s.querySelector('video'); if (v && id !== curMedia().id) v.pause(); });
+  V.slides.forEach((s, id) => {
+    const v = s.querySelector('video'); if (!v) return;
+    if (id !== curMedia().id) { v.pause(); v.preload = 'none'; } else v.preload = 'auto';
+  });
+  fetchPreviews();
   if (!dx) updateViewerChrome(fromFilm);
 }
 
@@ -1073,6 +1102,36 @@ function zoomAt(px, py, ns) {
   V.ty = py - (py - V.ty) * (ns / V.s);
   V.s = ns;
 }
+let prevBusy = false;
+async function fetchPreviews() {
+  if (!isNative || prevBusy || !V) return;
+  const need = [];
+  for (let i = V.idx - 2; i <= V.idx + 2; i++) { const m = V.items[i]; if (m && m.type === 'image' && !m.preview && !m.noPrev) need.push(m); }
+  if (!need.length) return;
+  prevBusy = true;
+  try {
+    const r = await Vault.ensurePreviews({ items: need.map(m => ({ id: m.id, path: m.path })) });
+    const map = (r && r.previews) || {};
+    need.forEach(m => {
+      const p = map[m.id];
+      if (p) {
+        m.preview = p;
+        const sl = V && V.slides.get(m.id), img = sl && sl.querySelector('img');
+        if (img && !(curMedia() === m && V.s > 1.01)) { const pre = new Image(); pre.src = fileSrc(p); pre.decode().then(() => { img.src = pre.src; }).catch(() => {}); }
+      } else if (p === '') m.noPrev = true;
+    });
+    save();
+  } catch (e) {}
+  prevBusy = false;
+  if (V && V.items.slice(Math.max(0, V.idx - 2), V.idx + 3).some(m => m.type === 'image' && !m.preview && !m.noPrev)) fetchPreviews();
+}
+function fullRes() {
+  const m = curMedia(), img = curEl();
+  if (!m || !img || m.type !== 'image' || !m.preview || img._full) return;
+  img._full = true;
+  const pre = new Image(); pre.src = fileSrc(m.path);
+  pre.decode().then(() => { if (curEl() === img) img.src = pre.src; }).catch(() => {});
+}
 function go(dir) {
   const n = V.idx + dir;
   if (n < 0 || n >= V.items.length) { renderSlides(true); return; }
@@ -1134,7 +1193,7 @@ function go(dir) {
     P.delete(e.pointerId);
     if (mode === 'pinch') {
       if (P.size === 0) {
-        if (V.s < 1.05) resetZoom(true); else { clampPan(); applyZoom(true); }
+        if (V.s < 1.05) resetZoom(true); else { clampPan(); applyZoom(true); if (V.s > 1.8) fullRes(); }
         mode = null;
       }
       return;
@@ -1157,7 +1216,7 @@ function go(dir) {
       if (now - lastTap < 280) {
         clearTimeout(tapTimer); lastTap = 0;
         if (curMedia().type === 'image') {
-          if (V.s > 1.01) resetZoom(true); else { zoomAt(e.clientX, e.clientY, 2.5); clampPan(); applyZoom(true); }
+          if (V.s > 1.01) resetZoom(true); else { zoomAt(e.clientX, e.clientY, 2.5); clampPan(); applyZoom(true); fullRes(); }
         }
       } else {
         lastTap = now;
