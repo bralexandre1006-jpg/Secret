@@ -64,6 +64,7 @@ const WebVault = {
   async readDb() { return {}; },
   async importZip() { throw new Error('android'); },
   async canDeleteFromGallery() { return { available: false }; },
+  async appInfo() { return { version: '' }; },
   async ensurePreviews() { return { previews: {} }; },
   async deleteFromGallery() { return { deleted: false }; },
   async exportZip() { throw new Error('android'); },
@@ -918,6 +919,7 @@ function openViewer(a, idx, cell) {
         <button class="icon-btn glass big" data-act="del" aria-label="Supprimer">${I.trash}</button>
       </div>
     </div>`;
+  filmReset();
   V = { el, a, items: viewItems(a), idx, slides: new Map(), s: 1, tx: 0, ty: 0, chrome: true, muted: false };
   el.classList.remove('hidden', 'chromeless', 'closing');
   el.style.background = '';
@@ -1031,11 +1033,12 @@ function centerFilm(smooth) {
   const target = t.offsetLeft + 24 - film.clientWidth / 2;
   const instant = !smooth || !V.filmReady || Math.abs(film.scrollLeft - target) > film.clientWidth * 1.5;
   V.filmReady = true;
-  film.scrollTo({ left: target, behavior: instant ? 'auto' : 'smooth' });
+  if (instant) film.scrollLeft = target; else film.scrollTo({ left: target, behavior: 'smooth' });
 }
+let filmReset = () => {};
 (function filmGestures() {
   const el = $('#viewer');
-  let user = false, endT = 0;
+  let user = false, raf = 0, last = -1, still = 0;
   const film = () => el.querySelector('.film');
   const pick = () => {
     const f = film(); if (!f || !V) return;
@@ -1047,16 +1050,26 @@ function centerFilm(smooth) {
       resetZoom(); V.idx = best; renderSlides(false, 0, true);
     }
   };
-  let touching = false;
-  const finish = () => { if (!V) return; user = false; film().classList.remove('scrubbing'); centerFilm(true); };
-  el.addEventListener('touchstart', e => { if (e.target.closest('.film')) { user = true; touching = true; film().classList.add('scrubbing'); clearTimeout(endT); } }, { passive: true });
-  el.addEventListener('touchend', () => { if (!user) return; touching = false; clearTimeout(endT); endT = setTimeout(finish, 180); }, { passive: true });
-  el.addEventListener('touchcancel', () => { if (!user) return; touching = false; clearTimeout(endT); endT = setTimeout(finish, 180); }, { passive: true });
-  el.addEventListener('scroll', e => {
-    if (!V || !user || !e.target.classList || !e.target.classList.contains('film')) return;
+  const stop = () => { cancelAnimationFrame(raf); raf = 0; user = false; const f = film(); f && f.classList.remove('scrubbing'); };
+  filmReset = stop;
+  // Suivi de l'inertie après le relâchement : uniquement après un geste réel sur la pellicule
+  const momentum = () => {
+    const f = film(); if (!f || !V || !user) { stop(); return; }
     pick();
-    if (!touching) { clearTimeout(endT); endT = setTimeout(finish, 180); }
-  }, true);
+    if (Math.abs(f.scrollLeft - last) < 0.5) still++; else still = 0;
+    last = f.scrollLeft;
+    if (still > 6) { stop(); centerFilm(true); return; }
+    raf = requestAnimationFrame(momentum);
+  };
+  el.addEventListener('touchstart', e => {
+    if (!V || !e.target.closest('.film')) return;
+    cancelAnimationFrame(raf); raf = 0;
+    user = true; film().classList.add('scrubbing');
+  }, { passive: true });
+  el.addEventListener('touchmove', e => { if (user && V) pick(); }, { passive: true });
+  const release = () => { if (!user) return; last = -1; still = 0; raf = requestAnimationFrame(momentum); };
+  el.addEventListener('touchend', release, { passive: true });
+  el.addEventListener('touchcancel', release, { passive: true });
   el.addEventListener('click', e => {
     const t = e.target.closest('.ft'); if (!t || !V) return;
     const i = +t.dataset.fi; if (i === V.idx) return;
@@ -1439,13 +1452,15 @@ document.addEventListener('visibilitychange', () => {
 
 /* ================= Réglages ================= */
 $('#lockNow').addEventListener('click', () => lock(false));
-$('#settingsBtn').addEventListener('click', () => {
+$('#settingsBtn').addEventListener('click', async () => {
   const opts = [];
   if (bioOK) opts.push({ label: 'Déverrouillage par empreinte', toggle: v => { db.settings.bio = v; save(); }, on: db.settings.bio });
   opts.push({ label: 'Aperçu des albums sur les catégories', toggle: v => { db.settings.stack = v; save(); renderHome(); }, on: db.settings.stack !== false });
   opts.push({ label: 'Lecture en boucle des vidéos', toggle: v => { db.settings.loop = v; save(); }, on: db.settings.loop });
   opts.push({ label: 'Modifier le code' });
-  sheet({ title: 'Réglages', opts }).then(i => { if (i != null && opts[i].label === 'Modifier le code') changePin(); });
+  let ver = '';
+  try { ver = (await Vault.appInfo()).version || ''; } catch (e) {}
+  sheet({ title: ver ? `Réglages · v${ver}` : 'Réglages', opts }).then(i => { if (i != null && opts[i].label === 'Modifier le code') changePin(); });
 });
 
 /* ================= Démarrage ================= */

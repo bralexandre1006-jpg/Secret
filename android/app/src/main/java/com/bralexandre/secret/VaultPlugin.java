@@ -110,6 +110,16 @@ public class VaultPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void appInfo(PluginCall call) {
+        JSObject o = new JSObject();
+        try {
+            android.content.pm.PackageInfo pi = getContext().getPackageManager().getPackageInfo(getContext().getPackageName(), 0);
+            o.put("version", pi.versionName);
+        } catch (Exception e) { o.put("version", ""); }
+        call.resolve(o);
+    }
+
+    @PluginMethod
     public void canDeleteFromGallery(PluginCall call) {
         JSObject o = new JSObject();
         o.put("available", Build.VERSION.SDK_INT >= 30);
