@@ -394,3 +394,8 @@ button.glass:active { background: linear-gradient(160deg, rgba(255,255,255,.32),
 /* Flou réservé aux surfaces posées sur un fond fixe (menus, feuilles, dialogues) */
 .sheet .glass, .dialog.glass, .ctx-menu.glass, .hud.glass { -webkit-backdrop-filter: blur(20px) saturate(160%); backdrop-filter: blur(20px) saturate(160%); background: linear-gradient(160deg, rgba(70,70,76,.55), rgba(36,36,40,.6)); }
 .scroller { -webkit-overflow-scrolling: touch; }
+
+video.vfade { opacity: 0; transition: opacity .18s; }
+video.vfade.ready { opacity: 1; }
+.slide video { position: relative; z-index: 1; }
+.slide .vposter { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; z-index: 0; pointer-events: none; }

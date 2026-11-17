@@ -216,9 +216,9 @@ let phN = 0;
 function coverHTML(m, full) {
   if (!m) return `<div class="cover-empty ph-${phN++ % 4}">${I.photos}</div>`;
   if (m.type === 'video' && full) {
-    return `<video class="cover-media" src="${fileSrc(m.path)}" ${m.thumb ? `poster="${fileSrc(m.thumb)}"` : ''} muted loop autoplay playsinline preload="metadata"></video>`;
+    return `${m.thumb ? `<img class="cover-media" src="${fileSrc(m.thumb)}" decoding="async" alt="">` : ''}<video class="cover-media vfade" src="${fileSrc(m.path)}" muted loop autoplay playsinline preload="auto"></video>`;
   }
-  const s = full && m.type === 'image' ? m.path : (m.thumb || (m.type === 'image' ? m.path : ''));
+  const s = full && m.type === 'image' ? (m.preview || m.path) : (m.thumb || (m.type === 'image' ? m.path : ''));
   return s ? `<img class="cover-media" src="${fileSrc(s)}" decoding="async" alt="">` : `<div class="cover-empty ph-${phN++ % 4}">${I.photos}</div>`;
 }
 const plural = (n, one, many) => `${n} ${n > 1 ? many : one}`;
@@ -234,7 +234,7 @@ let homeKey = '';
 function renderHome() {
   phN = 0;
   const box = $('#cats');
-  const key = db.cats.map(c => [c.name, c.cover, catAlbums(c).map(a => a.id + ':' + a.items.length + ':' + (albumCover(a) || {}).id).join(','), (catCover(c) || {}).id].join('|')).join('/');
+  const key = (db.settings.stack === false ? 'n' : 's') + db.cats.map(c => [c.name, c.cover, catAlbums(c).map(a => a.id + ':' + a.items.length + ':' + (albumCover(a) || {}).id).join(','), (catCover(c) || {}).id].join('|')).join('/');
   if (key === homeKey) return;
   homeKey = key;
   box.innerHTML = db.cats.map((c, i) => {
@@ -248,6 +248,7 @@ function renderHome() {
   $('#homeSub').textContent = total ? `${plural(total, 'élément', 'éléments')} · ${plural(nAl, 'album', 'albums')}` : 'Votre album privé';
 }
 function stackHTML(c) {
+  if (db.settings.stack === false) return '';
   const th = catAlbums(c).map(albumCover).filter(m => m && m.thumb).slice(0, 3);
   return th.length ? `<div class="stack">${th.map(m => `<span><img src="${fileSrc(m.thumb)}" alt=""></span>`).join('')}</div>` : '';
 }
@@ -987,7 +988,7 @@ function makeSlide(m) {
   const s = document.createElement('div');
   s.className = 'slide';
   if (m.type === 'video') {
-    s.innerHTML = `<video src="${fileSrc(m.path)}" ${m.thumb ? `poster="${fileSrc(m.thumb)}"` : ''} playsinline preload="metadata"></video>`;
+    s.innerHTML = `<video class="vfade" src="${fileSrc(m.path)}" playsinline preload="metadata"></video>${m.thumb ? `<img class="vposter" src="${fileSrc(m.thumb)}" alt="" draggable="false">` : ''}`;
   } else {
     s.innerHTML = `<img src="${fileSrc(m.preview || m.path)}" decoding="async" alt="" draggable="false">`;
   }
@@ -1324,6 +1325,14 @@ function go(dir) {
   el.addEventListener('pointerup', stopScrub); el.addEventListener('pointercancel', stopScrub);
 })();
 
+/* Vidéos : masquées jusqu'à la première image réellement affichée (évite les images parasites d'Android) */
+document.addEventListener('playing', e => {
+  const v = e.target; if (!(v instanceof HTMLVideoElement) || !v.classList.contains('vfade') || v.classList.contains('ready')) return;
+  const show = () => v.classList.add('ready');
+  if (v.requestVideoFrameCallback) v.requestVideoFrameCallback(() => requestAnimationFrame(show)); else setTimeout(show, 120);
+}, true);
+document.addEventListener('emptied', e => { if (e.target instanceof HTMLVideoElement) e.target.classList.remove('ready'); }, true);
+
 /* ================= Verrouillage ================= */
 const PIN_KEY = 'secret.pin';
 const lockEl = $('#lock'), dotsEl = $('#dots'), titleEl = $('#lockTitle');
@@ -1435,6 +1444,7 @@ $('#lockNow').addEventListener('click', () => lock(false));
 $('#settingsBtn').addEventListener('click', () => {
   const opts = [];
   if (bioOK) opts.push({ label: 'Déverrouillage par empreinte', toggle: v => { db.settings.bio = v; save(); }, on: db.settings.bio });
+  opts.push({ label: 'Aperçu des albums sur les catégories', toggle: v => { db.settings.stack = v; save(); renderHome(); }, on: db.settings.stack !== false });
   opts.push({ label: 'Lecture en boucle des vidéos', toggle: v => { db.settings.loop = v; save(); }, on: db.settings.loop });
   opts.push({ label: 'Modifier le code' });
   sheet({ title: 'Réglages', opts }).then(i => { if (i != null && opts[i].label === 'Modifier le code') changePin(); });
