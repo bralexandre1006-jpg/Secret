@@ -193,7 +193,7 @@ button.glass:active { background: linear-gradient(160deg, rgba(255,255,255,.32),
 .cell .check { position: absolute; right: 6px; bottom: 6px; width: 24px; height: 24px; border-radius: 50%; border: 1.5px solid #fff; background: rgba(0,0,0,.2); display: none; place-items: center; box-shadow: 0 1px 4px rgba(0,0,0,.4); }
 .selecting .cell .check { display: grid; }
 .selecting .cell .dur { display: none; }
-.cell.sel img { transform: scale(.94); opacity: .75; }
+.cell.sel img { opacity: .82; }
 .cell.sel .check { background: var(--accent); border-color: #fff; }
 .cell .check svg { width: 14px; height: 14px; fill: none; stroke: #fff; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; opacity: 0; }
 .cell.sel .check svg { opacity: 1; }
@@ -208,7 +208,7 @@ button.glass:active { background: linear-gradient(160deg, rgba(255,255,255,.32),
 .tb-btn:active { transform: scale(.9); background: rgba(255,255,255,.12); }
 .tb-btn.danger svg { stroke: var(--danger); }
 .tb-btn.on { background: rgba(255,255,255,.18); }
-.tb-btn[disabled] { opacity: .35; pointer-events: none; }
+.tb-btn[disabled] { opacity: .6; pointer-events: none; }
 .fab { position: absolute; right: calc(var(--sar) + 20px); bottom: calc(var(--sab) + 20px); width: 58px; height: 58px; border-radius: 29px; z-index: 6; display: grid; place-items: center; }
 .fab svg { width: 26px; height: 26px; fill: none; stroke: #fff; stroke-width: 2.2; stroke-linecap: round; }
 
@@ -378,3 +378,4 @@ button.glass:active { background: linear-gradient(160deg, rgba(255,255,255,.32),
 .prow .pn b { font-weight: 600; font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .prow .pn small { color: var(--fg2); font-size: 14px; }
 .nav [data-act="all"] { margin-right: auto; }
+.nav .right .pill { min-width: 92px; justify-content: center; }

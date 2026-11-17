@@ -403,7 +403,6 @@ function openAlbum(a) {
   el._render = () => {
     if (!db.albums[a.id]) return;
     items = albumItems(a);
-    el.querySelector('.title-sm').textContent = selecting ? (sel.size ? plural(sel.size, 'sélectionné', 'sélectionnés') : 'Sélectionner') : a.name;
     el.querySelector('.big-title').textContent = a.name;
     el.querySelector('.sub').textContent = countLabel(items);
     grid.className = `grid c${db.settings.cols}${selecting ? ' selecting' : ''}`;
@@ -425,7 +424,8 @@ function openAlbum(a) {
     updateSelUI();
   };
   function updateSelUI() {
-    el.querySelector('[data-act="select"]').textContent = selecting ? 'Annuler' : 'Sélectionner';
+    const selBtn = el.querySelector('[data-act="select"]');
+    selBtn.textContent = 'Annuler'; selBtn.classList.toggle('hidden', !selecting);
     const all = el.querySelector('[data-act="all"]');
     all.classList.toggle('hidden', !selecting || !items.length);
     all.textContent = items.length && sel.size === items.length ? 'Tout désélectionner' : 'Tout sélectionner';
@@ -433,8 +433,10 @@ function openAlbum(a) {
     el.querySelector('.fab').classList.toggle('hidden', selecting);
     el.querySelector('.back').classList.toggle('hidden', selecting);
     el.querySelector('[data-act="menu"]').classList.toggle('hidden', selecting);
-    el.querySelector('.title-sm').textContent = selecting ? (sel.size ? plural(sel.size, 'sélectionné', 'sélectionnés') : 'Sélectionner') : a.name;
-    el.querySelector('.nav').classList.toggle('scrolled', selecting || sc.scrollTop > 44);
+    el.querySelector('.title-sm').textContent = a.name;
+    el.querySelector('.title-sm').classList.toggle('hidden', selecting);
+    el.querySelector('.big-title').textContent = selecting ? (sel.size ? plural(sel.size, 'sélectionné', 'sélectionnés') : 'Sélectionnez des éléments') : a.name;
+    el.querySelector('.nav').classList.toggle('scrolled', sc.scrollTop > 44);
     el.querySelectorAll('.toolbar .tb-btn').forEach(b => b.disabled = !sel.size);
     el.querySelector('[data-act="s-cover"]').disabled = sel.size !== 1;
   }
@@ -477,12 +479,14 @@ function openAlbum(a) {
     if (selecting) { sel.has(m.id) ? sel.delete(m.id) : sel.add(m.id); cell.classList.toggle('sel', sel.has(m.id)); updateSelUI(); }
     else openViewer(a, +cell.dataset.i, cell);
   });
-  longPress(grid, '.cell', cell => {
+  longPress(grid, '.cell', (cell, p) => {
     if (selecting) return;
     const i = +cell.dataset.i, m = items[i];
-    contextMenu(cell, { kind: 'media', media: m, actions: mediaActions(m, a, () => {
-      setSelecting(true); sel.add(m.id); paintSel();
-    }), open: () => openViewer(a, i) });
+    navigator.vibrate && navigator.vibrate(12);
+    setSelecting(true); sel.add(m.id); paintSel();
+    drag = { id: p.pointerId, x: p.x, y: p.y, lx: p.x, ly: p.y, start: i, val: true, base: new Set(sel), active: true };
+    try { grid.setPointerCapture(p.pointerId); } catch (_) {}
+    requestAnimationFrame(autoScroll);
   });
 
   // Sélection par glissement (comme Photos iOS)
@@ -548,9 +552,12 @@ function longPress(root, sel, fn) {
     const tg = e.target.closest(sel); if (!tg) return;
     fired = false; x = e.clientX; y = e.clientY; cur = tg;
     tg.classList.add('pressing');
-    t = setTimeout(() => { fired = true; tg.classList.remove('pressing'); fn(tg); }, 480);
+    const pid = e.pointerId;
+    t = setTimeout(() => { fired = true; tg.classList.remove('pressing'); fn(tg, { pointerId: pid, x, y }); }, 450);
   });
   const cancel = e => { if (e.type === 'pointermove' && Math.hypot(e.clientX - x, e.clientY - y) < 10) return; clearTimeout(t); cur && cur.classList.remove('pressing'); };
+  ['pointerup', 'pointercancel', 'touchend', 'touchcancel'].forEach(ev => document.addEventListener(ev, () => { clearTimeout(t); cur && cur.classList.remove('pressing'); }, true));
+  root.addEventListener('scroll', () => { clearTimeout(t); cur && cur.classList.remove('pressing'); }, { passive: true, capture: true });
   root.addEventListener('pointermove', cancel); root.addEventListener('pointerup', cancel); root.addEventListener('pointercancel', cancel);
   root.addEventListener('click', e => { if (fired) { e.stopPropagation(); e.preventDefault(); fired = false; } }, true);
   root.addEventListener('contextmenu', e => e.preventDefault());
