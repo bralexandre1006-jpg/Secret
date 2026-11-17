@@ -40,6 +40,7 @@ const I = {
   heart: '<svg viewBox="0 0 24 24"><path d="M12 20.5s-7.5-4.6-7.5-10.3A4.2 4.2 0 0 1 12 7.6a4.2 4.2 0 0 1 7.5 2.6c0 5.7-7.5 10.3-7.5 10.3z"/></svg>',
   heartOn: '<svg viewBox="0 0 24 24" style="fill:#fff"><path d="M12 20.5s-7.5-4.6-7.5-10.3A4.2 4.2 0 0 1 12 7.6a4.2 4.2 0 0 1 7.5 2.6c0 5.7-7.5 10.3-7.5 10.3z"/></svg>',
   info: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5"/><circle cx="12" cy="7.8" r=".6" style="fill:#fff"/></svg>',
+  sort: '<svg viewBox="0 0 24 24"><path d="M7 4v16m0 0l-3-3m3 3l3-3M17 20V4m0 0l-3 3m3-3l3 3"/></svg>',
   auto: '<svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 0 1 14-5.3M20 12a8 8 0 0 1-14 5.3"/><path d="M18 3v4h-4M6 21v-4h4"/></svg>'
 };
 
@@ -99,7 +100,12 @@ async function loadDb() {
 }
 
 const sortKey = m => m.taken || m.added || 0;
-const albumItems = a => a.items.map(id => db.media[id]).filter(Boolean).sort((x, y) => sortKey(x) - sortKey(y));
+const SORTS = { old: 'Plus anciennes d’abord', new: 'Plus récentes d’abord', added: 'Ordre d’importation' };
+const albumItems = a => {
+  const l = a.items.map(id => db.media[id]).filter(Boolean);
+  if (a.sort === 'added') return l;
+  return a.sort === 'new' ? l.sort((x, y) => sortKey(y) - sortKey(x)) : l.sort((x, y) => sortKey(x) - sortKey(y));
+};
 const kindOf = () => db.settings.kind || 'all';
 const viewItems = a => { const k = kindOf(); const l = albumItems(a); return k === 'all' ? l : l.filter(m => k === 'ai' ? m.ai : !m.ai); };
 const albumCover = a => db.media[a.cover] || (a.items.length ? db.media[a.items[a.items.length - 1]] : null);
@@ -421,7 +427,7 @@ function openAlbum(a) {
       let month = '';
       grid.innerHTML = items.map((m, i) => {
         const mo = new Date(sortKey(m) || Date.now()).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
-        const head = mo !== month ? `<div class="mhead">${esc(mo)}</div>` : '';
+        const head = a.sort !== 'added' && mo !== month ? `<div class="mhead">${esc(mo)}</div>` : '';
         month = mo;
         return `${head}<div class="cell${sel.has(m.id) ? ' sel' : ''}" data-i="${i}">
       ${m.thumb ? `<img src="${fileSrc(m.thumb)}" loading="lazy" decoding="async" draggable="false" alt="">` : `<div class="cover-empty ph-${i % 4}">${I.photos}</div>`}
@@ -474,7 +480,16 @@ function openAlbum(a) {
       return;
     }
     if (act === 'menu') {
-      runSheet(a.name, [items.length && { label: 'Tout sélectionner', icon: I.selectI, run: selectAll }, ...albumActions(a)]);
+      runSheet(a.name, [
+        items.length && { label: 'Tout sélectionner', icon: I.selectI, run: selectAll },
+        { label: `Trier : ${SORTS[a.sort || 'old']}`, icon: I.sort, run: async () => {
+          const keys = Object.keys(SORTS);
+          const i = await sheet({ title: 'Trier les éléments', opts: keys.map(k => ({ label: (k === (a.sort || 'old') ? '✓  ' : '') + SORTS[k] })) });
+          if (i == null) return;
+          a.sort = keys[i]; save(); el._key = ''; el._render();
+        } },
+        ...albumActions(a)
+      ]);
       return;
     }
     const kb = e.target.closest('[data-kind]');

@@ -32,9 +32,7 @@ svg { display: block; }
 /* ---------- Liquid glass ---------- */
 .glass {
   position: relative; isolation: isolate;
-  background: linear-gradient(160deg, rgba(255,255,255,.22), rgba(255,255,255,.07) 45%, rgba(255,255,255,.12));
-  -webkit-backdrop-filter: blur(16px) saturate(170%);
-  backdrop-filter: blur(16px) saturate(170%);
+  background: linear-gradient(160deg, rgba(92,92,98,.62), rgba(44,44,48,.6) 45%, rgba(58,58,64,.62));
   box-shadow:
     inset 0 1px 1px rgba(255,255,255,.45),
     inset 0 -1px 1px rgba(255,255,255,.08),
@@ -183,7 +181,7 @@ button.glass:active { background: linear-gradient(160deg, rgba(255,255,255,.32),
 .grid.c2 { grid-template-columns: repeat(2, 1fr); }
 .grid.c3 { grid-template-columns: repeat(3, 1fr); }
 .grid.c5 { grid-template-columns: repeat(5, 1fr); }
-.cell { position: relative; aspect-ratio: 1; overflow: hidden; background: #141416; content-visibility: auto; contain-intrinsic-size: auto 130px; contain: layout paint; }
+.cell { position: relative; aspect-ratio: 1; overflow: hidden; background: #141416; contain: layout paint; }
 .cell img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .25s, opacity .25s; }
 .cell:active img { opacity: .8; }
 .mhead { grid-column: 1 / -1; padding: 18px calc(var(--sar) + 16px) 8px calc(var(--sal) + 16px); font-size: 19px; font-weight: 800; letter-spacing: -.015em; text-transform: capitalize; }
@@ -392,3 +390,7 @@ button.glass:active { background: linear-gradient(160deg, rgba(255,255,255,.32),
 .tb-ai { font-size: 15px; font-weight: 800; letter-spacing: .02em; }
 .cell img, .album img, .cover-media { -webkit-user-drag: none; -webkit-touch-callout: none; }
 .grid, .cell { -webkit-touch-callout: none; }
+
+/* Flou réservé aux surfaces posées sur un fond fixe (menus, feuilles, dialogues) */
+.sheet .glass, .dialog.glass, .ctx-menu.glass, .hud.glass { -webkit-backdrop-filter: blur(20px) saturate(160%); backdrop-filter: blur(20px) saturate(160%); background: linear-gradient(160deg, rgba(70,70,76,.55), rgba(36,36,40,.6)); }
+.scroller { -webkit-overflow-scrolling: touch; }
