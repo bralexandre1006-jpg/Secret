@@ -19,6 +19,9 @@ import android.util.Size;
 import android.webkit.MimeTypeMap;
 
 import androidx.activity.result.ActivityResult;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.IntentSenderRequest;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.biometric.BiometricManager;
 import androidx.biometric.BiometricPrompt;
 import androidx.core.content.ContextCompat;
@@ -63,6 +66,82 @@ import java.util.concurrent.Executors;
 public class VaultPlugin extends Plugin {
 
     private final ExecutorService io = Executors.newSingleThreadExecutor();
+    private ActivityResultLauncher<IntentSenderRequest> deleteLauncher;
+    private PluginCall pendingDelete;
+
+    @Override
+    public void load() {
+        super.load();
+        deleteLauncher = getActivity().getActivityResultRegistry().register(
+            "secret-gallery-delete",
+            new ActivityResultContracts.StartIntentSenderForResult(),
+            result -> {
+                PluginCall c = pendingDelete;
+                pendingDelete = null;
+                if (c == null) return;
+                JSObject o = new JSObject();
+                o.put("deleted", result.getResultCode() == Activity.RESULT_OK);
+                c.resolve(o);
+            }
+        );
+    }
+
+    // ---------- Suppression des originaux dans la galerie du téléphone ----------
+
+    private Uri toMediaStoreUri(Uri uri, String mime) {
+        try {
+            String auth = uri.getAuthority();
+            if (MediaStore.AUTHORITY.equals(auth)) {
+                List<String> seg = uri.getPathSegments();
+                if (seg.contains("picker") || seg.contains("picker_get_content")) {
+                    long id = Long.parseLong(uri.getLastPathSegment());
+                    Uri base = mime.startsWith("video/")
+                        ? MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
+                        : MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL);
+                    return android.content.ContentUris.withAppendedId(base, id);
+                }
+                return uri;
+            }
+            if (Build.VERSION.SDK_INT >= 29 && "com.android.providers.media.documents".equals(auth)) {
+                return MediaStore.getMediaUri(getContext(), uri);
+            }
+        } catch (Exception ignored) {}
+        return null;
+    }
+
+    @PluginMethod
+    public void canDeleteFromGallery(PluginCall call) {
+        JSObject o = new JSObject();
+        o.put("available", Build.VERSION.SDK_INT >= 30);
+        call.resolve(o);
+    }
+
+    @PluginMethod
+    public void deleteFromGallery(PluginCall call) {
+        if (Build.VERSION.SDK_INT < 30) {
+            call.reject("Android 11 minimum", "unsupported");
+            return;
+        }
+        JSArray arr = call.getArray("uris", new JSArray());
+        List<Uri> uris = new ArrayList<>();
+        try {
+            for (int i = 0; i < arr.length(); i++) uris.add(Uri.parse(arr.getString(i)));
+        } catch (Exception ignored) {}
+        if (uris.isEmpty()) {
+            JSObject o = new JSObject();
+            o.put("deleted", false);
+            call.resolve(o);
+            return;
+        }
+        try {
+            android.app.PendingIntent pi = MediaStore.createDeleteRequest(getContext().getContentResolver(), uris);
+            pendingDelete = call;
+            deleteLauncher.launch(new IntentSenderRequest.Builder(pi.getIntentSender()).build());
+        } catch (Exception e) {
+            pendingDelete = null;
+            call.reject("Suppression impossible", e);
+        }
+    }
 
     private File mediaDir() {
         File d = new File(getContext().getFilesDir(), "vault/media");
@@ -118,7 +197,11 @@ public class VaultPlugin extends Plugin {
             for (Uri uri : uris) {
                 try {
                     JSObject item = importUri(uri);
-                    if (item != null) items.put(item);
+                    if (item != null) {
+                        Uri src = toMediaStoreUri(uri, item.getString("mime", ""));
+                        if (src != null) item.put("source", src.toString());
+                        items.put(item);
+                    }
                 } catch (Exception ignored) {}
                 done++;
                 JSObject p = new JSObject();

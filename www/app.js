@@ -62,6 +62,8 @@ const WebVault = {
   async writeDb() {},
   async readDb() { return {}; },
   async importZip() { throw new Error('android'); },
+  async canDeleteFromGallery() { return { available: false }; },
+  async deleteFromGallery() { return { deleted: false }; },
   async exportZip() { throw new Error('android'); },
   async biometricAvailable() { return { available: false }; },
   async authenticate() { return { success: false }; },
@@ -241,7 +243,7 @@ longPress($('#cats'), '.cat', t => {
 });
 
 async function pickCover(target) {
-  busyExternal = true;
+  clearTimeout(extT); busyExternal = true;
   try {
     const r = await Vault.pickMedia({ multiple: false });
     const m = r.items && r.items[0]; if (!m) return;
@@ -249,7 +251,7 @@ async function pickCover(target) {
     const old = target.cover; target.cover = m.id;
     if (old) gc([old]);
     save(); refreshAll(); toast('Couverture mise à jour');
-  } catch (e) { toast('Import impossible'); } finally { busyExternal = false; }
+  } catch (e) { toast('Import impossible'); } finally { endExternal(); }
 }
 
 async function rename(obj, title) {
@@ -532,21 +534,38 @@ function longPress(root, sel, fn) {
 }
 
 /* ================= Actions sur les médias ================= */
-let busyExternal = false;
+let busyExternal = false, extT = 0;
+const endExternal = () => { clearTimeout(extT); extT = setTimeout(() => { busyExternal = false; }, 900); };
 async function importInto(a) {
-  busyExternal = true;
+  clearTimeout(extT); busyExternal = true;
   let sub;
   try {
     sub = await Vault.addListener('importProgress', p => toast(`Importation ${p.done}/${p.total}…`, 0));
     const r = await Vault.pickMedia({ multiple: true });
     const list = (r && r.items) || [];
     if (!list.length) return;
-    list.forEach(m => { db.media[m.id] = m; a.items.push(m.id); });
+    const sources = list.map(m => m.source).filter(Boolean);
+    list.forEach(m => { delete m.source; db.media[m.id] = m; a.items.push(m.id); });
     save(); refreshAll();
-    toast(`${plural(list.length, 'élément importé', 'éléments importés')}`);
+    toast(null);
     const top = topScreen().querySelector('.scroller'); if (top) requestAnimationFrame(() => top.scrollTo({ top: top.scrollHeight, behavior: 'smooth' }));
-  } catch (e) { toast('Import impossible'); }
-  finally { busyExternal = false; sub && sub.remove && sub.remove(); }
+    if (sources.length) await offerGalleryDelete(sources);
+  } catch (e) { toast(null); }
+  finally { endExternal(); sub && sub.remove && sub.remove(); }
+}
+
+async function offerGalleryDelete(uris) {
+  try { if (!(await Vault.canDeleteFromGallery()).available) return; } catch (e) { return; }
+  const n = uris.length;
+  const i = await sheet({
+    title: n > 1 ? `${n} éléments importés dans Secret` : 'Importé dans Secret',
+    msg: n > 1 ? 'Supprimer les originaux de la galerie du téléphone ?' : "Supprimer l'original de la galerie du téléphone ?",
+    opts: [{ label: n > 1 ? `Supprimer les ${n} originaux` : "Supprimer l'original", danger: true }, { label: 'Garder dans la galerie' }]
+  });
+  if (i !== 0) return;
+  clearTimeout(extT); busyExternal = true;
+  try { await Vault.deleteFromGallery({ uris }); } catch (e) {}
+  finally { endExternal(); }
 }
 
 const safeName = n => String(n || '').replace(/[\\/:*?"<>|]/g, '_').trim() || 'Album';
@@ -559,7 +578,7 @@ function zipEntry(m, folder) {
 
 async function importZip(cat, album) {
   if (!isNative) { toast('Disponible sur Android'); return; }
-  busyExternal = true;
+  clearTimeout(extT); busyExternal = true;
   let sub;
   try {
     sub = await Vault.addListener('zipProgress', p => toast(`Importation ${p.done}…`, 0));
@@ -581,31 +600,31 @@ async function importZip(cat, album) {
     save(); refreshAll();
     toast(`${plural(list.length, 'élément importé', 'éléments importés')}${albumsTouched ? ` dans ${plural(albumsTouched, 'album', 'albums')}` : ''}`, 2600);
   } catch (e) { toast('ZIP illisible'); }
-  finally { busyExternal = false; sub && sub.remove && sub.remove(); }
+  finally { endExternal(); sub && sub.remove && sub.remove(); }
 }
 
 async function exportZip(name, entries) {
   if (!isNative) { toast('Disponible sur Android'); return; }
   if (!entries.length) { toast('Rien à exporter'); return; }
-  busyExternal = true;
+  clearTimeout(extT); busyExternal = true;
   let sub;
   try {
     sub = await Vault.addListener('zipProgress', p => toast(`Export ${p.done}/${p.total}…`, 0));
     const r = await Vault.exportZip({ name: safeName(name), entries });
     toast(`${r.name} enregistré dans Téléchargements/Secret`, 3200);
   } catch (e) { toast("Échec de l'export"); }
-  finally { busyExternal = false; sub && sub.remove && sub.remove(); }
+  finally { endExternal(); sub && sub.remove && sub.remove(); }
 }
 
 async function saveMany(list) {
   if (!list.length) return 0;
-  busyExternal = true;
+  clearTimeout(extT); busyExternal = true;
   let ok = 0;
   for (const m of list) {
     if (list.length > 1) toast(`Téléchargement ${ok + 1}/${list.length}…`, 0);
     try { await Vault.saveToGallery({ path: m.path, mime: m.mime }); ok++; } catch (e) {}
   }
-  busyExternal = false;
+  endExternal();
   toast(null);
   return ok;
 }
